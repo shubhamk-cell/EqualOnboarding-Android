@@ -1,5 +1,8 @@
 package ai.equal.orb.screens
 
+import ai.equal.orb.ui.selectableLift
+import ai.equal.orb.ui.glassCardFace
+import ai.equal.orb.ui.PRIMARY_BUTTON_HEIGHT
 import androidx.compose.material.icons.filled.Edit
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
@@ -260,15 +263,14 @@ fun OtpScreen(model: AppModel) {
                 )
                 Box(Modifier.padding(top = 6.dp)) {
                     // The number, with a small pencil to go back and change it.
+                    // A full 48dp tap target round the number and pencil.
                     Row(
-                        Modifier.pressable { model.go(Step.Phone, -1) }.padding(vertical = 6.dp),
+                        Modifier.pressable { model.go(Step.Phone, -1) }.padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Txt("+91 $spaced", dm(15f, FontWeight.SemiBold, EQ.ink))
-                        Box(Modifier.size(26.dp).background(EQ.green.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
-                            Image(rememberVectorPainter(Icons.Filled.Edit), "Edit number", Modifier.size(14.dp), colorFilter = ColorFilter.tint(EQ.greenDeep))
-                        }
+                        Image(rememberVectorPainter(Icons.Filled.Edit), "Edit number", Modifier.size(17.dp), colorFilter = ColorFilter.tint(EQ.greenDeep))
                     }
                 }
             }
@@ -276,7 +278,7 @@ fun OtpScreen(model: AppModel) {
     }) {
         // Ready to tap once the code is in, in case verifying is ever slow.
         PrimaryButton(
-            if (verifying) "Verifying…" else "Confirm", enabled = digits.size >= length, lookEnabled = verifying,
+            if (verifying) "Verifying…" else "Confirm", enabled = digits.size >= length, loading = verifying,
             modifier = Modifier.afterOrb(talk, index = 1),
         ) { model.confirmOtp() }
     }
@@ -292,7 +294,7 @@ private fun OtpCell(text: String, filled: Boolean, long: Boolean, modifier: Modi
     }
     val stroke by animateColorAsState(if (filled) EQ.green else EQ.edge, tween(200), label = "otp")
     Box(
-        modifier.height(if (long) 60.dp else 68.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+        modifier.height(PRIMARY_BUTTON_HEIGHT).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
             .glass(RoundedCornerShape(if (long) 16.dp else 18.dp), tint = 0.62f, stroke = stroke),
         contentAlignment = Alignment.Center,
     ) { Txt(text, dm(if (long) 24f else 26f, FontWeight.SemiBold, EQ.ink)) }
@@ -469,8 +471,8 @@ private fun Genders(model: AppModel, name: String, shown: Boolean, modifier: Mod
 }
 
 /**
- * As in the design: a tinted card, the name of the choice on top, a 3D bust rising from the
- * bottom edge, and a faint ♂ / ♀ in the corner. The chosen card keeps a tick on its corner.
+ * A neutral glass card: the name of the choice on top, a 3D bust rising from the bottom edge,
+ * and a faint ♂ / ♀ in the corner. The chosen card keeps a tick on its corner.
  */
 @Composable
 private fun GenderCard(g: Gender, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
@@ -480,17 +482,12 @@ private fun GenderCard(g: Gender, on: Boolean, modifier: Modifier, onClick: () -
         Box(
             Modifier
                 .matchParentSize()
-                .drawBehind {
-                    val i = 4.dp.toPx()
-                    drawRoundRect(EQ.green.copy(alpha = 0.14f * sel.coerceIn(0f, 1f)), Offset(-i, -i), Size(size.width + 2 * i, size.height + 2 * i), CornerRadius(22.dp.toPx()))
-                }
-                .shadow(8.dp, shape, ambientColor = hex(0x1E2A6B, if (on) 0.12f else 0.07f), spotColor = hex(0x1E2A6B, if (on) 0.12f else 0.07f))
+                .selectableLift(on, shape)
                 .clip(shape)
-                .background(hex(g.fill))
-                .border(if (on) 2.dp else 1.dp, if (on) EQ.green else EQ.edge, shape),
+                .glassCardFace(shape, on)
+                .border(if (on) 1.5.dp else 1.dp, if (on) EQ.green else EQ.edge, shape),
         ) {
             GenderMark(g, Modifier.align(if (g == Gender.Male) Alignment.TopStart else Alignment.BottomStart))
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0f)))))
             Column(Modifier.matchParentSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Txt(g.label, dm(17f, FontWeight.Medium, EQ.ink), Modifier.padding(top = 18.dp))
                 Spacer(Modifier.weight(1f).height(6.dp))
@@ -516,7 +513,7 @@ private fun GenderCard(g: Gender, on: Boolean, modifier: Modifier, onClick: () -
 // MARK: - Shared input
 
 /**
- * White 60 dp pill holding a field, with the screen's main action merged in as a round green
+ * White 56 dp pill holding a field, with the screen's main action merged in as a round green
  * send button at its right end. Gains a green rim once something is typed; until then a faint
  * outline keeps it visible on the white page.
  */
@@ -532,7 +529,7 @@ fun InputPill(
     Row(
         modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(PRIMARY_BUTTON_HEIGHT)
             .drawBehind {
                 val i = 3.dp.toPx()
                 drawRoundRect(ring, Offset(-i, -i), Size(size.width + 2 * i, size.height + 2 * i), CornerRadius(size.height / 2 + i))
@@ -540,13 +537,13 @@ fun InputPill(
             .shadow(10.dp, pill, ambientColor = hex(0x003214, 0.08f), spotColor = hex(0x003214, 0.12f))
             .background(Color.White, pill)
             .border(if (filled) 1.5.dp else 1.dp, rim, pill)
-            .padding(start = 22.dp, end = 8.dp),
+            .padding(start = 20.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         field()
         Spacer(Modifier.width(8.dp))
         Box(
-            Modifier.size(44.dp)
+            Modifier.size(40.dp)
                 .pressable(canSend, 0.92f) { onSend() }
                 .then(if (canSend) Modifier.shadow(6.dp, CircleShape, spotColor = hex(0x008C32, 0.4f)) else Modifier)
                 .background(send, CircleShape),

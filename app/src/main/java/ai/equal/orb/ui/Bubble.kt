@@ -359,12 +359,12 @@ fun SideBubble(talk: Talk, reserve: String, modifier: Modifier = Modifier, fontS
 fun OrbWithBubble(
     talk: Talk, reserve: String,
     modifier: Modifier = Modifier, orbDiameter: Dp = 128.dp, spinning: Boolean = false,
-    fontSize: Float = 18f, lineHeight: Float = 23f,
+    fontSize: Float = 18f, lineHeight: Float = 23f, rings: Boolean = true,
 ) {
     val clock = rememberWallClock()
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Box(Modifier.orbHover(orbDiameter, clock).zIndex(2f)) { TopBubble(talk, reserve, fontSize, lineHeight) }
-        OrbSlot(orbDiameter, spinning = spinning)
+        OrbSlot(orbDiameter, spinning = spinning, rings = rings)
     }
 }
 

@@ -79,7 +79,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun OverlayHost(model: AppModel) {
     when (val o = model.overlay) {
-        Overlay.Consent -> ConsentDialog(model)
         is Overlay.Decline -> DeclineSheet(model, o.missing)
         null -> {}
     }
@@ -87,55 +86,6 @@ fun OverlayHost(model: AppModel) {
 
 /** Closing an overlay: a success tap when the user allows, a plain step otherwise. */
 private fun closeHaptic(result: String) { if (result == "allow") Haptics.success() else Haptics.step() }
-
-/** Call-data consent: Equal's own dialog, asked once. */
-@Composable
-private fun ConsentDialog(model: AppModel) {
-    val scope = rememberCoroutineScope()
-    val p = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { p.animateTo(1f, tween(380, easing = CubicBezierEasing(0.32f, 1.2f, 0.5f, 1f))) }
-    fun close(r: String) = scope.launch { closeHaptic(r); p.animateTo(0f, tween(250, easing = EQ.push)); model.resolve(r) }
-    BackHandler { close("deny") }
-
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier.fillMaxSize().graphicsLayer { alpha = p.value.coerceIn(0f, 1f) }.background(hex(0x0A140C, 0.32f))
-                .clickable(remember { MutableInteractionSource() }, indication = null) {}
-        )
-        Column(
-            Modifier
-                .padding(horizontal = 22.dp)
-                .widthIn(max = 340.dp)
-                .graphicsLayer {
-                    val v = p.value
-                    alpha = v.coerceIn(0f, 1f); translationY = 20 * density * (1 - v)
-                    val s = 0.96f + 0.04f * v; scaleX = s; scaleY = s
-                }
-                .shadow(30.dp, RoundedCornerShape(28.dp))
-                .background(Color.White, RoundedCornerShape(28.dp))
-                .padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 20.dp)
-        ) {
-            Txt("Allow Equal to process your call data?", dm(21f, FontWeight.Bold, EQ.ink, lineHeight = 27f, tracking = -0.42f))
-            Spacer(Modifier.height(14.dp))
-            Txt(
-                "To identify callers, detect spam, and respond on your behalf, Equal shares limited call data — including caller ID, audio transcripts, and contact context — with our AI partners.",
-                dm(14.5f, color = hex(0x2B2B2B), lineHeight = 21f),
-            )
-            Spacer(Modifier.height(14.dp))
-            Txt("Your data is used only to power your assistant. It is never sold or used for advertising.", dm(14.5f, color = hex(0x2B2B2B), lineHeight = 21f))
-            Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    Modifier.weight(1f).height(50.dp).pressable { close("deny") }.background(hex(0xE3E3E3), RoundedCornerShape(50)),
-                    contentAlignment = Alignment.Center,
-                ) { Txt("Don’t allow", dm(16f, FontWeight.SemiBold, hex(0x111111))) }
-                Box(
-                    Modifier.weight(1f).height(50.dp).pressable { close("allow") }.background(EQ.green, RoundedCornerShape(50)),
-                    contentAlignment = Alignment.Center,
-                ) { Txt("Allow", dm(16f, FontWeight.SemiBold, Color.White)) }
-            }
-        }
-    }
-}
 
 /**
  * Shown once both system prompts have been answered (or from Home's banner), in one of three

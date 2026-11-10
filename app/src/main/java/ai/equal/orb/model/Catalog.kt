@@ -39,7 +39,7 @@ object Catalog {
             "Hello, is this {n}?",
             "I’m {n}’s assistant. May I know who’s calling and why?",
             "I asked who they are and why they called.", false),
-        UseCase("task_appt", "🩺", "Book doctor appointments", "Clinic",
+        UseCase("task_appt", "🩺", "Book doctor visits", "Clinic",
             "We have slots tomorrow — what time works?",
             "Tomorrow at 6 PM works for {n}. Please book it under their name.",
             "I booked tomorrow at 6 PM under your name.", false),
@@ -55,7 +55,7 @@ object Catalog {
             "Calling about the PTM on Friday.",
             "Thank you! I’ll pass this to {n} — they’ll call back soon.",
             "I noted it’s about the PTM on Friday.", false),
-        UseCase("pro_meet", "💼", "Take messages in meetings", "Caller",
+        UseCase("pro_meet", "💼", "Take calls in meetings", "Caller",
             "Is {n} free to talk?",
             "{n} is in a meeting — they’ll call you back within the hour.",
             "I said you’re in a meeting and will call back within the hour.", false),
@@ -75,7 +75,7 @@ object Catalog {
             "Your car insurance expires next week.",
             "Please send the renewal quote on WhatsApp — {n} will check it tonight.",
             "I asked them to send the quote on WhatsApp.", false),
-        UseCase("guard", "💂", "Talk to my building guard", "Security guard",
+        UseCase("guard", "💂", "Talk to my gate guard", "Security guard",
             "Someone from the bank is at the gate for you.",
             "Please ask them to leave the documents with you — {n} will collect them.",
             "I asked the guard to keep the documents.", false),
@@ -124,6 +124,15 @@ object Catalog {
     fun useCase(id: String) = useCases.firstOrNull { it.id == id }
 
     /**
+     * The twelve options on the picks page, two to a row, in this order: each row pairs a long label
+     * with a short one, the long side alternating, so every row's widths are uneven.
+     */
+    val pickOptions = listOf(
+        "task_door", "bank", "task_bill", "task_med", "unknown", "guard",
+        "drive", "cab", "task_resched", "pro_meet", "task_appt", "bday",
+    ).map { id -> useCases.first { it.id == id } }
+
+    /**
      * The picks' voice-note covers: a profile photo of who's on the call (AI-generated, fictional
      * people), one per kind of caller and shared by the options they cover.
      */
@@ -162,13 +171,14 @@ object Catalog {
     // MARK: Orb lines
 
     /** What the orb says on each screen. */
-    enum class Ask { Phone, Otp, Name, Cases, Fwd, Access, Welcome }
+    enum class Ask { Phone, Otp, Name, Cases, Sim, Fwd, Access, Welcome }
 
     fun title(ask: Ask, name: String = "") = when (ask) {
         Ask.Phone -> "What number do you get calls on?"
         Ask.Otp -> "Enter the code I just texted you"
         Ask.Name -> "What should I call you?"
         Ask.Cases -> "I can handle all kinds of calls! Tap the ones that matter most to you"
+        Ask.Sim -> "Which SIM should I answer calls on? Only one can be active at a time"
         Ask.Fwd -> "One code, and all calls you can’t or don’t want to take come to me"
         Ask.Access -> "Setting up call forwarding, so missed calls come to me"
         Ask.Welcome -> "Welcome to Equal, $name!"
@@ -177,15 +187,13 @@ object Catalog {
     const val curating = "Curating sample calls from your picks…"
     const val forwardingDone = "Done! Missed calls now come to me"
 
-    /** The three call-forwarding cases Equal sets up on Android. */
-    val forwardingCases = listOf("When you’re busy", "When you don’t answer", "When you’re unreachable")
 
     /** On the name screen once the name is in. */
-    fun genderAsk(name: String) = "Nice to meet you, $name! What’s your gender? I’ll use it to address you on calls"
+    fun genderAsk(name: String) = "Nice to meet you, $name! What’s your gender?"
     /** After the sample calls. */
     const val assistantAsk = "Now that you’ve seen me in action, how would you like me to\u00A0sound?"
     /** The picks: exactly three, and they turn into sample calls on the spot. */
-    const val pickThree = "I can handle all your calls. Select any 3 to get a\u00A0glimpse"
+    const val pickThree = "Select any 3 to get a glimpse of how I handle all your\u00A0calls"
     /** Said over the sample-call cards; counts the picks shown (up to three). */
     fun curated(count: Int) =
         if (count <= 1) "Here’s how I’ll handle your pick" else "Here’s how I’ll handle your top\u00A0${minOf(count, 3)}\u00A0picks"
@@ -196,6 +204,9 @@ object Catalog {
         title(Ask.Phone, "") to mapOf(Lang.Hi to "आपके कॉल किस नंबर पर आते हैं?",
                                       Lang.Ta to "உங்களுக்கு எந்த எண்ணில் அழைப்புகள் வரும்?",
                                       Lang.Bn to "আপনার কল কোন নম্বরে আসে?"),
+            title(Ask.Sim, "") to mapOf(Lang.Hi to "मैं किस सिम पर कॉल का जवाब दूँ? एक समय में एक ही सिम चालू रह सकती है",
+                Lang.Ta to "எந்த சிம்மில் நான் அழைப்புகளுக்குப் பதிலளிக்கட்டும்? ஒரே நேரத்தில் ஒன்று மட்டுமே இயங்கும்",
+                Lang.Bn to "কোন সিমে আমি কল ধরব? একসঙ্গে একটাই সিম চালু থাকতে পারে"),
             title(Ask.Otp, "") to mapOf(Lang.Hi to "अभी भेजा हुआ कोड डालिए",
                                     Lang.Ta to "நான் இப்போது அனுப்பிய குறியீட்டை உள்ளிடுங்கள்",
                                     Lang.Bn to "এইমাত্র পাঠানো কোডটি লিখুন"),
@@ -223,15 +234,15 @@ object Catalog {
             title(Ask.Access, "") to mapOf(Lang.Hi to "अब वॉइसमेल की जगह मुझे जवाब देने दीजिए",
                                        Lang.Ta to "இனி வாய்ஸ்மெயிலுக்குப் பதிலாக நான் பதிலளிக்கிறேன்",
                                        Lang.Bn to "এবার ভয়েসমেলের বদলে আমাকে উত্তর দিতে দিন"),
-            genderAsk("{name}") to mapOf(Lang.Hi to "आपसे मिलकर अच्छा लगा, {name}! आपका जेंडर क्या है? कॉल पर आपको उसी हिसाब से संबोधित करूँगी",
-                                  Lang.Ta to "உங்களைச் சந்தித்ததில் மகிழ்ச்சி, {name}! உங்கள் பாலினம் என்ன? அழைப்புகளில் உங்களை அப்படியே குறிப்பிடுவேன்",
-                                  Lang.Bn to "আপনার সঙ্গে আলাপ করে ভালো লাগল, {name}! আপনার লিঙ্গ কী? কলে আপনাকে সেভাবেই সম্বোধন করব"),
+            genderAsk("{name}") to mapOf(Lang.Hi to "आपसे मिलकर अच्छा लगा, {name}! आपका जेंडर क्या है?",
+                                  Lang.Ta to "உங்களைச் சந்தித்ததில் மகிழ்ச்சி, {name}! உங்கள் பாலினம் என்ன?",
+                                  Lang.Bn to "আপনার সঙ্গে আলাপ করে ভালো লাগল, {name}! আপনার লিঙ্গ কী?"),
             assistantAsk to mapOf(Lang.Hi to "अब आपने मुझे काम करते देख लिया, बताइए मेरी आवाज़ कैसी हो?",
                            Lang.Ta to "என்னைச் செயலில் பார்த்துவிட்டீர்கள், என் குரல் எப்படி இருக்க வேண்டும்?",
                            Lang.Bn to "আমাকে কাজ করতে দেখলেন, এবার বলুন আমার গলা কেমন হবে?"),
-            pickThree to mapOf(Lang.Hi to "मैं आपके सारे कॉल संभाल सकती हूँ। एक झलक के लिए कोई भी 3 चुनिए",
-                        Lang.Ta to "உங்கள் எல்லா அழைப்புகளையும் நான் கவனிப்பேன். ஒரு பார்வைக்கு ஏதேனும் 3-ஐத் தேர்ந்தெடுங்கள்",
-                        Lang.Bn to "আপনার সব কল আমি সামলাতে পারি। এক ঝলক দেখতে যেকোনো ৩টে বেছে নিন"),
+            pickThree to mapOf(Lang.Hi to "कोई भी 3 चुनिए और झलक देखिए कि मैं आपके सारे कॉल कैसे संभालती हूँ",
+                        Lang.Ta to "ஏதேனும் 3-ஐத் தேர்ந்தெடுங்கள், உங்கள் அழைப்புகளை நான் எப்படிக் கவனிப்பேன் என்று பாருங்கள்",
+                        Lang.Bn to "যেকোনো ৩টে বেছে নিন, দেখুন আপনার সব কল আমি কীভাবে সামলাই"),
             title(Ask.Welcome, "{name}") to mapOf(Lang.Hi to "Equal में आपका स्वागत है, {name}!",
                                               Lang.Ta to "Equal-க்கு வரவேற்கிறோம், {name}!",
                                               Lang.Bn to "Equal-এ স্বাগতম, {name}!"),

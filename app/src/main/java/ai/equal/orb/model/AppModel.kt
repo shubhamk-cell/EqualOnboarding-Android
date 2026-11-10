@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
  * Voicemail step; [Access] is call forwarding, which Equal turns on by itself.
  */
 enum class Step {
-    Splash, Phone, Otp, Name, Cases, Assistant, Access, Welcome, Home;
+    Splash, Phone, Otp, Name, Cases, Assistant, Sim, Access, Welcome, Home;
 
     val hasBack get() = this != Phone && this != Welcome
     val onSky get() = this != Splash && this != Home
@@ -43,16 +43,13 @@ enum class Lang(val label: String) { En("English"), Hi("हिन्दी"), Ta
 /** Which language the orb's bubbles are in. Shared by every bubble on every screen. */
 object Language {
     var current by mutableStateOf(Lang.En)
-    /** After the first nudge of the orb, the top bar also offers a language menu. */
-    var menuUnlocked by mutableStateOf(false)
 
     /** The orb was tapped or dragged: the next language, wrapping round to the first. */
     fun next() {
         current = Lang.entries[(current.ordinal + 1) % Lang.entries.size]
-        menuUnlocked = true
     }
 
-    fun reset() { current = Lang.En; menuUnlocked = false }
+    fun reset() { current = Lang.En }
 }
 
 /** How Equal addresses the user on calls (asked on the name screen). */
@@ -119,7 +116,6 @@ val List<Permission>.art: Int
 
 /** Modal surfaces drawn above the flow. */
 sealed interface Overlay {
-    data object Consent : Overlay
     /** Equal's sheet after the system prompts, for whichever permissions were refused. */
     data class Decline(val missing: List<Permission>) : Overlay
 }
@@ -150,12 +146,11 @@ class AppModel(val scope: CoroutineScope) {
     var gender by mutableStateOf<Gender?>(null)
     var whatsapp by mutableStateOf(true)
     val picks = mutableStateListOf<String>()
-    var consentAsked = false
     /** The code is verified: the permission popups are due (they open over the name page). */
     var permissionsDue by mutableStateOf(false)
-    /** One tick per forwarding case (busy / unanswered / unreachable). */
-    val forwarded = mutableStateListOf(false, false, false)
     var fwdDone by mutableStateOf(false)
+    /** The SIM Equal takes calls on (0 or 1; null until one is picked). */
+    var sim by mutableStateOf<Int?>(null)
     /** Notifications, contacts: granted? (null = not asked yet, which counts as off too.) */
     var perms by mutableStateOf(listOf<Boolean?>(null, null))
 
@@ -227,7 +222,7 @@ class AppModel(val scope: CoroutineScope) {
     }
 
     /** The screens, in order. */
-    private val route = listOf(Step.Phone, Step.Otp, Step.Name, Step.Cases, Step.Assistant, Step.Access, Step.Welcome, Step.Home)
+    private val route = listOf(Step.Phone, Step.Otp, Step.Name, Step.Cases, Step.Assistant, Step.Sim, Step.Access, Step.Welcome, Step.Home)
 
     /** The step after the current one. */
     fun next() {
@@ -250,7 +245,8 @@ class AppModel(val scope: CoroutineScope) {
     private fun cta(s: Step) = when (s) {
         Step.Cases -> "Show me how"
         Step.Assistant -> "Choose a voice"
-        Step.Access -> "Set up call forwarding"
+        Step.Sim -> "Choose your SIM"
+        Step.Access -> "Activate on this SIM"
         Step.Welcome -> "Finish setup"
         Step.Home -> "Go to Home"
         else -> "Continue"
@@ -318,8 +314,7 @@ class AppModel(val scope: CoroutineScope) {
     fun restart() {
         voice = Voice.Aanya; voiceChosen = false
         phone = ""; name = ""; gender = null; whatsapp = true; picks.clear()
-        perms = listOf(null, null); consentAsked = false; permissionsDue = false; fwdDone = false
-        for (i in forwarded.indices) forwarded[i] = false
+        perms = listOf(null, null); permissionsDue = false; fwdDone = false; sim = null
         overlay = null; toast = null
         orbSpot = null; orbInSlot = false; settleJob?.cancel(); orbDock = null; dockLanding?.cancel(); dockLanding = null
         localBack = null
@@ -412,15 +407,6 @@ class AppModel(val scope: CoroutineScope) {
         pending = null
         overlay = null
         d?.complete(result)
-    }
-
-    /** Equal's own consent for processing call data. Asked once. */
-    suspend fun askConsentOnce() {
-        if (consentAsked) return
-        consentAsked = true
-        if (present(Overlay.Consent) != "allow") {
-            showToast("You can turn this on later in Settings — Equal can’t answer calls without it")
-        }
     }
 
     fun showToast(text: String) {

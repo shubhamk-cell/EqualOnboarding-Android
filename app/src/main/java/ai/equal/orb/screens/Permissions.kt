@@ -119,7 +119,7 @@ private fun rememberPermissionAsker(): suspend (String) -> Boolean {
 /**
  * The permission popups, right after the code is verified ([AppModel.permissionsDue]), over the
  * name page: Android's notifications prompt, then contacts. If either was refused, Equal's own
- * sheet asks once for whatever is missing; then Equal asks for call-data consent (once).
+ * sheet asks once for whatever is missing.
  * Draws nothing itself; lives at the app's root so it isn't tied to a screen.
  */
 @Composable
@@ -143,7 +143,6 @@ fun PermissionPrompts(model: AppModel) {
         model.perms = listOf(notifications || fixed, contacts || fixed)
         if (notifications && contacts) Haptics.success()
 
-        model.askConsentOnce()
         model.permissionsDue = false
     }
 }

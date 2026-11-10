@@ -245,8 +245,9 @@ private fun DrawScope.drawRipples(t: Float) {
         var p = ((t - i * 1.4f) % 4.2f) / 4.2f
         if (p < 0) p += 1
         val e = bezierEase(p, 0.2f, 0.6f, 0.3f, 1f)
-        val a = if (p < 0.12f) 0.42f * (p / 0.12f) else 0.42f * (1 - (p - 0.12f) / 0.88f)
-        drawCircle(Color.White.copy(alpha = 0.5f * a / 0.42f * 0.42f), radius = size.width / 2 * (1 + 0.42f * e), style = Stroke(1f * density))
+        val a = if (p < 0.12f) p / 0.12f else 1 - (p - 0.12f) / 0.88f
+        // A thin green ring on the light page: there, but quiet.
+        drawCircle(EQ.green.copy(alpha = 0.18f * a), radius = size.width / 2 * (1 + 0.42f * e), style = Stroke((1 - 0.4f * e) * density))
     }
 }
 

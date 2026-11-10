@@ -1,5 +1,6 @@
 package ai.equal.orb
 
+import ai.equal.orb.R
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Lang
 import ai.equal.orb.model.Language
@@ -73,8 +74,8 @@ fun OrbApp(startStep: String?) {
     val view = LocalView.current
     SideEffect { Haptics.view = view }
 
-    // Light status-bar icons on the green splash and over the dimmed Home, dark everywhere else.
-    val dark = model.step == Step.Splash
+    // Light status-bar icons on the green splash and over the forwarding scene, dark everywhere else.
+    val dark = model.step == Step.Splash || model.step == Step.Access
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
@@ -92,6 +93,11 @@ fun OrbApp(startStep: String?) {
     Box(Modifier.fillMaxSize().background(Color.White)) {
         val skyAlpha by animateFloatAsState(if (onSky) 1f else 0f, tween(450), label = "sky")
         if (skyAlpha > 0f) Sky(Modifier.graphicsLayer { alpha = skyAlpha })
+
+        // Call forwarding: a dark scene of calls drifting in plays behind the whole page.
+        AnimatedVisibility(model.step == Step.Access, enter = fadeIn(tween(500)), exit = fadeOut(tween(400))) {
+            ForwardingBackdrop()
+        }
 
         // Home: slides in 24 dp from the right as it fades up.
         AnimatedVisibility(
@@ -129,6 +135,8 @@ private fun FlowContainer(model: AppModel) {
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
+            // Breathing room under the bottom buttons, clear of the screen's edge.
+            .padding(bottom = 16.dp)
     ) {
         TopBar(model)
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { model.contentOrigin = it.positionInRoot() }) {
@@ -152,6 +160,7 @@ private fun FlowContainer(model: AppModel) {
                         Step.Name -> NameScreen(model)
                         Step.Cases -> PickThreeScreen(model)
                         Step.Assistant -> AssistantScreen(model)
+                        Step.Sim -> SimScreen(model)
                         Step.Access -> AccessScreen(model)
                         Step.Welcome -> WelcomeScreen(model)
                         else -> Box(Modifier.fillMaxSize())
@@ -164,7 +173,7 @@ private fun FlowContainer(model: AppModel) {
 
 /**
  * Close (first screen) or Back on the left,
- * and — once the orb has been nudged — a language menu in the middle.
+ * and the language menu, always, in the middle.
  */
 @Composable
 private fun TopBar(model: AppModel) {
@@ -185,11 +194,7 @@ private fun TopBar(model: AppModel) {
                 else -> Spacer(Modifier.size(48.dp))
             }
         }
-        AnimatedVisibility(
-            Language.menuUnlocked && model.step != Step.Welcome,
-            Modifier.align(Alignment.Center).padding(top = 10.dp),
-            enter = fadeIn() + scaleIn(initialScale = 0.6f), exit = fadeOut() + scaleOut(targetScale = 0.6f),
-        ) { LanguageMenu() }
+        Box(Modifier.align(Alignment.Center).padding(top = 10.dp)) { LanguageMenu() }
     }
 }
 

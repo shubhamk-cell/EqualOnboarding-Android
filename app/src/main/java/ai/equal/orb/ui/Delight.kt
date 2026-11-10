@@ -362,13 +362,14 @@ fun CelebrationBurst(trigger: Int, modifier: Modifier = Modifier, spread: Dp = 1
  */
 @Composable
 fun GenderMark(gender: Gender, modifier: Modifier = Modifier) {
-    val colour = hex(gender.mark)
+    // Neutral on every card: the shape alone says which is which.
+    val colour = EQ.ink
     val male = gender == Gender.Male
     Canvas(
         modifier
             .offset(if (male) (-22).dp else (-30).dp, if (male) (-10).dp else 40.dp)
             .size(if (male) 95.dp else 109.dp, if (male) 103.dp else 118.5.dp)
-            .graphicsLayer { alpha = if (male) 0.1f else 0.16f },
+            .graphicsLayer { alpha = 0.05f },
     ) {
         val u = density
         fun pt(x: Double, y: Double) = Offset((x * u).toFloat(), (y * u).toFloat())

@@ -34,6 +34,12 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -178,22 +184,83 @@ fun Modifier.riseIn(active: Boolean, delayMs: Int, distance: Dp = 26.dp, duratio
     graphicsLayer { alpha = p.value.coerceIn(0f, 1f); translationY = px * (1 - p.value) }
 }
 
-/** Big green pill (60dp). Disabled: washed-out green, no shadow. */
+/**
+ * The large, full-width button from the design system: 56dp capsule, 18sp semibold label.
+ * Disabled: light grey with a grey label, the whole button at half opacity. [loading]: the same
+ * grey, with a spinner before the label (“Verifying…”).
+ */
 @Composable
-fun PrimaryButton(text: String, enabled: Boolean = true, lookEnabled: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val on = enabled || lookEnabled
+fun PrimaryButton(text: String, enabled: Boolean = true, loading: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val on = enabled && !loading
     val shape = RoundedCornerShape(50)
-    Box(
+    val fill by androidx.compose.animation.animateColorAsState(if (on) EQ.green else hex(0xDDDDDD), tween(250), label = "fill")
+    val ink by androidx.compose.animation.animateColorAsState(if (on) hex(0xF7F7F7) else hex(0x888888), tween(250), label = "ink")
+    val fade by animateFloatAsState(if (on) 1f else 0.5f, tween(250), label = "fade")
+    Row(
         modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .pressable(enabled) { onClick() }
+            .height(PRIMARY_BUTTON_HEIGHT)
+            .pressable(on) { onClick() }
+            .graphicsLayer { alpha = fade }
             .then(if (on) Modifier.shadow(12.dp, shape, ambientColor = hex(0x00782D, 0.3f), spotColor = hex(0x00782D, 0.45f)) else Modifier)
-            .background(if (on) EQ.green else EQ.green.copy(alpha = 0.38f), shape),
-        contentAlignment = Alignment.Center,
+            .background(fill, shape),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        Txt(text, dm(18f, FontWeight.SemiBold, Color.White.copy(alpha = if (on) 1f else 0.75f), tracking = -0.18f))
+        if (loading) {
+            Spinner(hex(0x888888), Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Txt(text, dm(18f, FontWeight.SemiBold, ink, tracking = -0.026f * 18))
     }
+}
+
+/**
+ * The top bar's room (and the orb's top padding), given back under a page while it's still empty,
+ * so the orb and its bubble sit in the middle of the screen rather than of the space under the bar.
+ */
+val EMPTY_PAGE_BALANCE = 64.dp
+
+/** The pill buttons' height, shared by fields and code cells that sit beside them. */
+val PRIMARY_BUTTON_HEIGHT = 56.dp
+
+/** A small turning arc (the system's activity indicator). */
+@Composable
+fun Spinner(color: Color, modifier: Modifier = Modifier) {
+    val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "spin")
+    val angle by spin.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(800, easing = androidx.compose.animation.core.LinearEasing)), label = "angle")
+    androidx.compose.foundation.Canvas(modifier.graphicsLayer { rotationZ = angle }) {
+        val w = 2.dp.toPx()
+        drawArc(color, -90f, 270f, false, topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+            size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+    }
+}
+
+// MARK: - Selectable glass cards
+
+/**
+ * The neutral, slightly glassy face of a choice card (gender, voice, picks): frosted white over
+ * the page's glows, a soft sheen from the top, and a hairline edge. Picked, it tints faint mint
+ * and the edge turns green. Draws behind the card's content, clipped to [shape].
+ */
+fun Modifier.glassCardFace(shape: Shape, on: Boolean): Modifier = composed {
+    val tint by androidx.compose.animation.animateColorAsState(if (on) EQ.mintAlt.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.55f), tween(250), label = "face")
+    this
+        .background(Color.White.copy(alpha = 0.35f), shape)
+        .background(tint, shape)
+        .background(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.7f), 0.5f to Color.White.copy(alpha = 0f)), shape)
+}
+
+/**
+ * A card's lift: a faint neutral shadow, and, once picked, a wide, soft green glow underneath
+ * instead of a hard halo round the edge.
+ */
+fun Modifier.selectableLift(on: Boolean, shape: Shape): Modifier = composed {
+    val glow by animateFloatAsState(if (on) 1f else 0f, tween(250), label = "lift")
+    this
+        .shadow(10.dp, shape, ambientColor = hex(0x0B1F12, 0.06f - 0.02f * glow), spotColor = hex(0x0B1F12, 0.06f - 0.02f * glow))
+        .then(if (glow > 0f) Modifier.shadow(18.dp * glow, shape, ambientColor = EQ.green.copy(alpha = 0.16f * glow), spotColor = EQ.green.copy(alpha = 0.5f * glow)) else Modifier)
 }
 
 /** Low-key text link (“I’ll do this later”). */

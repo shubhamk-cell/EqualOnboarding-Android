@@ -1,5 +1,7 @@
 package ai.equal.orb.screens
 
+import ai.equal.orb.ui.EMPTY_PAGE_BALANCE
+import ai.equal.orb.ui.selectableLift
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Step
@@ -126,10 +128,11 @@ private enum class Stage { Grid, Gathered, Notes }
 private const val NEEDED = 3
 
 /**
- * The picks: “Select any 3”, with no Skip and no Continue. The third pick sets everything off on
- * the same page: the other options fade, the three gather at the top and shimmer while the orb
+ * The picks: “Select any 3”. Continue turns on at the third pick and sets everything off on the
+ * same page: the other options fade, the three gather at the top and shimmer while the orb
  * curates, then each turns into a voice note: its photo grows into the note's cover, its emoji
- * and name glide into place, and its player pops in beside them. Continue arrives after.
+ * and name glide into place, and its player pops in beside them. The way on unlocks once at least
+ * one call has been played.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -158,16 +161,18 @@ fun PickThreeScreen(model: AppModel) {
     val lengths = remember { mutableStateMapOf<String, Float>() }
     var showOptions by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
+    /** At least one sample call has been played, which unlocks the way on. */
+    var heard by remember { mutableStateOf(false) }
     val lift = remember { Animatable(0f) }
     val scroll = rememberScrollState()
     val title = Catalog.pickThree
-    val rows = remember { Catalog.useCases.chunked(2) }
+    val rows = remember { Catalog.pickOptions.chunked(2) }
 
     /** Back to choosing, on this page, starting fresh: all three picks are cleared. */
     fun backToPicking() {
         curating?.cancel()
         player.stop()
-        shimmer = false; handing = false; cardContent = false
+        shimmer = false; handing = false; cardContent = false; heard = false
         expanded = false
         rearranged = false
         phase = Pick3.Picking
@@ -177,8 +182,6 @@ fun PickThreeScreen(model: AppModel) {
     }
 
     suspend fun curate() = kotlinx.coroutines.coroutineScope {
-        // A beat to see the third pick land (and to untick it, if it was a slip).
-        delay(550)
         if (model.picks.size != NEEDED || phase != Pick3.Picking) return@coroutineScope
         Haptics.step()
         phase = Pick3.Curating
@@ -220,17 +223,23 @@ fun PickThreeScreen(model: AppModel) {
 
     fun toggle(u: UseCase) {
         if (phase != Pick3.Picking) return
-        // Never more than three, even with quick taps during the beat before curating (unticking
-        // one still works then).
+        // Never more than three.
         val adding = u.id !in model.picks
         if (adding && model.picks.size >= NEEDED) return
         Haptics.select()
         if (adding) model.picks.add(u.id) else model.picks.remove(u.id)
-        if (model.picks.size == NEEDED) { curating?.cancel(); curating = scope.launch { curate() } }
+    }
+
+    /** Continue, once three are picked: the picks are only turned into calls on tap. */
+    fun startCurating() {
+        if (phase != Pick3.Picking || model.picks.size != NEEDED) return
+        curating?.cancel()
+        curating = scope.launch { curate() }
     }
 
     fun play(u: UseCase) {
         Haptics.select()
+        heard = true
         if (player.id == u.id) {
             if (player.playing) player.pause() else player.play()
             return
@@ -330,13 +339,30 @@ fun PickThreeScreen(model: AppModel) {
                 }
             }
         }
+        // Until the options arrive the page is empty: the orb and its bubble sit mid-screen.
+        Spacer(Modifier.height(EMPTY_PAGE_BALANCE * (1f - lift.value)))
 
+        AnimatedVisibility(
+            phase == Pick3.Picking && revealed,
+            enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(tween(400, 300, EQ.push)) { with(density) { 30.dp.roundToPx() } },
+            exit = ExitTransition.None,
+        ) {
+            // Unlocks at the third pick.
+            PrimaryButton("Continue", enabled = model.picks.size == NEEDED, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                Haptics.step()
+                startCurating()
+            }
+        }
         AnimatedVisibility(
             cardContent,
             enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EQ.push)) { with(density) { 30.dp.roundToPx() } },
             exit = ExitTransition.None,
         ) {
-            PrimaryButton(model.nextCta, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+            // Listening to a call comes first; the label says so until one has been played.
+            PrimaryButton(
+                if (heard) "Continue" else "Listen to a call to continue", enabled = heard,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            ) {
                 player.stop()
                 model.next()
             }
@@ -403,23 +429,12 @@ private fun SharedTransitionScope.ThreePill(
             Modifier
                 .fillMaxSize()
                 .pressable(enabled = page.phase == Pick3.Picking, scale = 0.96f) { onClick() }
-                .drawBehind {
-                    // The soft green glow around a pick.
-                    val g = 3.dp.toPx()
-                    drawRoundRect(
-                        EQ.green.copy(alpha = if (on) 0.12f * (1 - letGo) else 0f),
-                        Offset(-g, -g), Size(size.width + 2 * g, size.height + 2 * g), CornerRadius(20.dp.toPx() + g),
-                    )
-                }
-                .shadow(
-                    (if (on) 7.dp else 6.dp) * (1 - letGo), shape,
-                    ambientColor = hex(0x003214, 0.06f), spotColor = hex(if (on) 0x00782D else 0x003214, if (on) 0.12f else 0.06f),
-                )
+                .then(if (letGo < 1f) Modifier.selectableLift(on && !page.handing, shape) else Modifier)
                 .background(fill.copy(alpha = fill.alpha * (1 - letGo)), shape)
                 .border(if (on) 1.5.dp else 1.dp, rim.copy(alpha = rim.alpha * (1 - letGo)), shape)
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (photo != null) {
                 Image(

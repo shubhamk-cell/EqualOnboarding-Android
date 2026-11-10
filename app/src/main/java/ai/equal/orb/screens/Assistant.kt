@@ -1,5 +1,7 @@
 package ai.equal.orb.screens
 
+import ai.equal.orb.ui.glassCardFace
+import ai.equal.orb.ui.selectableLift
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.CallLanguage
 import ai.equal.orb.model.Catalog
@@ -77,7 +79,7 @@ import kotlin.math.sin
 
 /**
  * After the sample calls: “Now that you’ve seen me in action, how would you like me to
- * sound?” Four voices in a 2×2 grid, two female and two male, each card tinted and marked ♀ / ♂
+ * sound?” Four voices in a 2×2 grid, two female and two male, on neutral glass cards marked ♀ / ♂
  * like the gender cards. Tapping a card picks that voice and plays its hello; the way on appears
  * once one is picked.
  */
@@ -121,8 +123,8 @@ fun AssistantScreen(model: AppModel) {
     val p = grid.value
 
     Column(Modifier.fillMaxSize()) {
-        // Before the grid opens the orb sits in the middle (lifted, as on the picks page); the
-        // space above it closes as the grid takes its room.
+        // Before the grid opens the orb sits in the middle of the screen; the space above it
+        // closes as the grid takes its room.
         Spacer(Modifier.weight((1f - p).coerceAtLeast(0.0001f)))
         OrbWithBubble(talk, title, Modifier.fillMaxWidth().padding(top = 10.dp).padding(horizontal = 24.dp))
         if (p > 0f) Column(
@@ -145,7 +147,7 @@ fun AssistantScreen(model: AppModel) {
             }
         }
         Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(150.dp * (1f - p)))
+        // The button below roughly balances the top bar above, so nothing more is needed here.
         PrimaryButton(
             model.nextCta, enabled = chosen != null,
             modifier = Modifier.padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 8.dp).graphicsLayer { alpha = buttonAlpha },
@@ -175,14 +177,10 @@ private fun VoiceCard(v: Voice, on: Boolean, speaking: Boolean, modifier: Modifi
         Box(
             Modifier
                 .matchParentSize()
-                .drawBehind {
-                    val i = 4.dp.toPx()
-                    drawRoundRect(EQ.green.copy(alpha = 0.14f * sel.coerceIn(0f, 1f)), Offset(-i, -i), Size(size.width + 2 * i, size.height + 2 * i), CornerRadius(22.dp.toPx()))
-                }
-                .shadow(8.dp, shape, ambientColor = hex(0x1E2A6B, if (on) 0.12f else 0.07f), spotColor = hex(0x1E2A6B, if (on) 0.12f else 0.07f))
+                .selectableLift(on, shape)
                 .clip(shape)
-                .background(hex(gender.fill))
-                .border(if (on) 2.dp else 1.dp, if (on) EQ.green else EQ.edge, shape),
+                .glassCardFace(shape, on)
+                .border(if (on) 1.5.dp else 1.dp, if (on) EQ.green else EQ.edge, shape),
         ) {
             // In the lower-right corner, whole enough to read as ♀ (ring and cross) or ♂ (ring and
             // arrow), just cut by the edge.
@@ -190,7 +188,6 @@ private fun VoiceCard(v: Voice, on: Boolean, speaking: Boolean, modifier: Modifi
                 gender,
                 Modifier.align(Alignment.BottomEnd).offset(if (v.isFemale) 38.dp else 30.dp, if (v.isFemale) (-32).dp else 22.dp),
             )
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0f)))))
             Column(Modifier.matchParentSize().padding(14.dp)) {
                 // Plays its hello: bars while it speaks, a play glyph otherwise.
                 Box(

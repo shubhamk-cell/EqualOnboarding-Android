@@ -8,6 +8,7 @@ import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Step
 import ai.equal.orb.ui.EQ
+import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.Orb
 import ai.equal.orb.ui.TopBubble
 import ai.equal.orb.ui.Txt
@@ -47,8 +48,9 @@ import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 /**
- * Welcome moment: confetti falls, sparkles twinkle round a big orb that pops in, and the bubble
- * types the user's name. After 4.8 s the screen grows, blurs and fades into Home.
+ * Welcome moment: the orb glides in and grows big and the bubble greets the user by name; then
+ * confetti falls and sparkles twinkle round it. After 4.8 s the screen grows, blurs and fades into
+ * Home while the orb flies down into Home's Equal button.
  */
 @Composable
 fun WelcomeScreen(model: AppModel) {
@@ -60,14 +62,16 @@ fun WelcomeScreen(model: AppModel) {
 
     LaunchedEffect(Unit) {
         talk.intro(title)
-        OrbFlight.untilLanded()   // the shared orb glides in and grows big
+        // The celebration waits for the orb to say it.
+        while (!talk.said) delay(50)
         launch { popped.animateTo(1f, tween(600, easing = EQ.ease)) }
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        Haptics.success()
         delay(4800)
-        model.orbLeaving = true   // the orb grows, blurs and fades with the screen
-        bye.animateTo(1f, tween(600, easing = EQ.push))
-        delay(50)
-        model.go(Step.Home)
+        launch { bye.animateTo(1f, tween(500, easing = EQ.push)) }
+        delay(300)
+        // The orb flies down into Home's Equal button while the screen fades.
+        model.dockOrb()
+        model.exitToHome()
     }
 
     Box(
@@ -76,7 +80,7 @@ fun WelcomeScreen(model: AppModel) {
             .graphicsLayer { val s = 1 + 0.06f * bye.value; scaleX = s; scaleY = s; alpha = 1 - bye.value }
             .blur((8 * bye.value).dp)
     ) {
-        Confetti()
+        if (popped.value > 0f) Confetti()
         Column(
             Modifier.align(Alignment.Center).padding(horizontal = 28.dp).padding(bottom = 60.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -86,7 +90,7 @@ fun WelcomeScreen(model: AppModel) {
             Box(Modifier.orbHover(162.dp, clock)) { TopBubble(talk, title) }
             Box(contentAlignment = Alignment.Center) {
                 Box(Modifier.graphicsLayer { alpha = popped.value }) { Twinkles() }
-                OrbSlot(162.dp) { talk.playful(Catalog.playful(Catalog.Ask.Welcome)) }
+                OrbSlot(162.dp)
             }
         }
     }

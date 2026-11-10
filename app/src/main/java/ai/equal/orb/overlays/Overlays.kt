@@ -6,6 +6,7 @@ import ai.equal.orb.model.Permission
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Overlay
 import ai.equal.orb.ui.EQ
+import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.PrimaryButton
 import ai.equal.orb.ui.Txt
 import ai.equal.orb.ui.dm
@@ -80,10 +81,12 @@ fun OverlayHost(model: AppModel) {
     when (val o = model.overlay) {
         Overlay.Consent -> ConsentDialog(model)
         is Overlay.Decline -> DeclineSheet(model, o.missing)
-        is Overlay.Ussd -> CarrierReply(model, o.case)
         null -> {}
     }
 }
+
+/** Closing an overlay: a success tap when the user allows, a plain step otherwise. */
+private fun closeHaptic(result: String) { if (result == "allow") Haptics.success() else Haptics.step() }
 
 /** Call-data consent: Equal's own dialog, asked once. */
 @Composable
@@ -91,7 +94,7 @@ private fun ConsentDialog(model: AppModel) {
     val scope = rememberCoroutineScope()
     val p = remember { Animatable(0f) }
     LaunchedEffect(Unit) { p.animateTo(1f, tween(380, easing = CubicBezierEasing(0.32f, 1.2f, 0.5f, 1f))) }
-    fun close(r: String) = scope.launch { p.animateTo(0f, tween(250, easing = EQ.push)); model.resolve(r) }
+    fun close(r: String) = scope.launch { closeHaptic(r); p.animateTo(0f, tween(250, easing = EQ.push)); model.resolve(r) }
     BackHandler { close("deny") }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -156,7 +159,7 @@ private fun DeclineSheet(model: AppModel, missing: List<Permission>) {
     val context = LocalContext.current
     val p = remember { Animatable(0f) }
     LaunchedEffect(Unit) { p.animateTo(1f, tween(420, easing = EQ.push)) }
-    fun close(r: String) = scope.launch { p.animateTo(0f, tween(380, easing = EQ.push)); model.resolve(r) }
+    fun close(r: String) = scope.launch { closeHaptic(r); p.animateTo(0f, tween(380, easing = EQ.push)); model.resolve(r) }
     BackHandler { close("dismiss") }
 
     Box(Modifier.fillMaxSize()) {
@@ -215,63 +218,6 @@ private fun DeclineSheet(model: AppModel, missing: List<Permission>) {
                     .shadow(4.dp, CircleShape).background(Color.White, CircleShape),
                 contentAlignment = Alignment.Center,
             ) { Image(rememberVectorPainter(Icons.Filled.Close), "Close", Modifier.size(20.dp), colorFilter = ColorFilter.tint(EQ.ink)) }
-        }
-    }
-}
-
-/**
- * What the carrier shows after a forwarding code: “Calling…”, then the registrations land one
- * by one. Dismiss, or it closes itself after 6 s.
- */
-@Composable
-private fun CarrierReply(model: AppModel, case: String) {
-    val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
-    val shown = remember { Animatable(0f) }
-    var lines by remember { mutableIntStateOf(0) }
-    var ready by remember { mutableStateOf(false) }
-    var closed by remember { mutableStateOf(false) }
-    val kinds = listOf("Voice", "Data", "Fax", "SMS")
-    fun close() {
-        if (closed) return
-        closed = true
-        scope.launch { shown.animateTo(0f, tween(200)); model.resolve("done") }
-    }
-    BackHandler { close() }
-    LaunchedEffect(Unit) {
-        shown.animateTo(1f, tween(250))
-        delay(450)
-        ready = true
-        for (i in kinds.indices) { lines = i + 1; delay(260) }
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        delay((6000 - 700 - 260 * kinds.size).toLong())
-        close()
-    }
-
-    Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = shown.value }.background(Color.Black)
-            .clickable(remember { MutableInteractionSource() }, indication = null) {}
-            .statusBarsPadding()
-            .padding(top = 52.dp, start = 28.dp, end = 28.dp),
-    ) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Txt("Calling…", dm(15f, color = Color.White.copy(alpha = 0.6f)), Modifier.padding(bottom = 22.dp))
-            kinds.forEachIndexed { i, k ->
-                AnimatedVisibility(i < lines, enter = fadeIn(tween(350)) + scaleIn(tween(350), initialScale = 0.98f)) {
-                    val c = if (i == 0) Color.White else Color.White.copy(alpha = 0.55f)
-                    Column(Modifier.padding(bottom = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Txt("Setting Registration Succeeded", dm(14f, FontWeight.Bold, c))
-                        Txt("$k Call Forwarding", dm(14f, color = c))
-                        Txt(case, dm(14f, color = c))
-                    }
-                }
-            }
-            Box(
-                Modifier.padding(top = 20.dp).graphicsLayer { alpha = if (ready) 1f else 0f }
-                    .height(44.dp).pressable(ready) { close() }.background(Color.White, RoundedCornerShape(50))
-                    .padding(horizontal = 44.dp),
-                contentAlignment = Alignment.Center,
-            ) { Txt("Dismiss", dm(15f, FontWeight.SemiBold, Color.Black)) }
         }
     }
 }

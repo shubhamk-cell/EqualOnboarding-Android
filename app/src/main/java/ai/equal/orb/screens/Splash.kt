@@ -6,6 +6,7 @@ import ai.equal.orb.R
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Step
 import ai.equal.orb.ui.EQ
+import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.Txt
 import ai.equal.orb.ui.bezierEase
 import ai.equal.orb.ui.dm
@@ -93,7 +94,7 @@ fun SplashScreen(model: AppModel) {
     Box(
         Modifier
             .fillMaxSize()
-            .clickable(remember { MutableInteractionSource() }, indication = null) { leave() }
+            .clickable(remember { MutableInteractionSource() }, indication = null) { Haptics.step(); leave() }
             .semantics { contentDescription = "Equal AI. India’s No. 1 AI Call Assistant." },
     ) {
         // Background: lime → green diagonal with a soft white highlight.

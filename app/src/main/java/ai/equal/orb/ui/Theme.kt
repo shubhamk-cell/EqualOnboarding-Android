@@ -22,6 +22,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +78,8 @@ object EQ {
     val secondary = Color(0xFF555555)
     val placeholder = Color(0xFFAAAAAA)
     val hair = Color.Black.copy(alpha = 0.08f)
+    /** The faint outline that keeps white fields, options and cards visible on the white page. */
+    val edge = Color(0xFF0B1F12).copy(alpha = 0.1f)
 
     /** The push curve every screen change uses: cubic-bezier(.32,.72,0,1). */
     val push: Easing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
@@ -143,7 +149,7 @@ fun Txt(text: AnnotatedString, style: TextStyle, modifier: Modifier = Modifier, 
 // MARK: - Surfaces & press feedback
 
 /** Frosted-looking surface for fields, chips and small buttons. */
-fun Modifier.glass(shape: Shape, tint: Float = 0.55f, stroke: Color = Color.White.copy(alpha = 0.75f), shadow: Boolean = true) =
+fun Modifier.glass(shape: Shape, tint: Float = 0.55f, stroke: Color = EQ.edge, shadow: Boolean = true) =
     this
         .then(if (shadow) Modifier.shadow(8.dp, shape, ambientColor = hex(0x003214, 0.10f), spotColor = hex(0x003214, 0.10f)) else Modifier)
         .background(Color.White.copy(alpha = tint), shape)
@@ -262,7 +268,7 @@ fun rememberWallClock(): androidx.compose.runtime.State<Float> {
 
 /** The orb's idle float at time [t]: (sideways sway −1…1, rise 0…1). */
 fun orbHover(t: Float): Pair<Float, Float> =
-    kotlin.math.sin(2 * Math.PI * t / 7.2).toFloat() to (1 - kotlin.math.cos(2 * Math.PI * t / 3.6)).toFloat() / 2
+    kotlin.math.sin(2 * Math.PI * t / 10).toFloat() to (1 - kotlin.math.cos(2 * Math.PI * t / 5)).toFloat() / 2
 
 @Composable
 fun rememberClock(): androidx.compose.runtime.State<Float> {
@@ -272,4 +278,57 @@ fun rememberClock(): androidx.compose.runtime.State<Float> {
         while (true) androidx.compose.runtime.withFrameNanos { t.floatValue = (it - start) / 1e9f }
     }
     return t
+}
+
+// MARK: - Haptics
+
+/**
+ * The app's whole haptic vocabulary, so the same kind of moment always feels the same:
+ * [step] moving through the flow, [select] choosing, [success] something finished well,
+ * [warning] something needs attention, [land] a soft settle when something arrives.
+ */
+object Haptics {
+    /** The app's root view (set by [ai.equal.orb.OrbApp]). */
+    var view: android.view.View? = null
+    private fun fire(constant: Int) { view?.performHapticFeedback(constant) }
+
+    fun step() = fire(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+    fun select() = fire(android.view.HapticFeedbackConstants.CLOCK_TICK)
+    fun success() = fire(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS)
+    fun warning() = fire(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.REJECT else android.view.HapticFeedbackConstants.LONG_PRESS)
+    fun land() = fire(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+}
+
+/** 48dp frosted circle with a cross (leave the onboarding). */
+@Composable
+fun CloseButton(onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).pressable { onClick() }.glass(CircleShape, tint = 0.28f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(rememberVectorPainter(androidx.compose.material.icons.Icons.Filled.Close), "Close", Modifier.size(22.dp), colorFilter = ColorFilter.tint(EQ.ink))
+    }
+}
+
+/**
+ * Holds part of a page back until its orb has said its first line, then lets it rise in. On
+ * every page the orb and its message come first; the rest follows. [index] staggers several.
+ */
+fun Modifier.afterOrb(talk: Talk, index: Int = 0): Modifier = composed {
+    val p by androidx.compose.animation.core.animateFloatAsState(
+        if (talk.said) 1f else 0f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 160f),
+        label = "afterOrb",
+    )
+    var shown by remember { mutableStateOf(talk.said) }
+    LaunchedEffect(talk.said) {
+        if (talk.said && !shown) { kotlinx.coroutines.delay(150L + index * 100L); shown = true }
+        if (!talk.said) shown = false
+    }
+    val v = if (shown) p else 0f
+    this
+        .graphicsLayer { alpha = v.coerceIn(0f, 1f); translationY = 18 * density * (1 - v) }
+        .then(if (talk.said) Modifier else Modifier.pointerInput(Unit) {
+            awaitPointerEventScope { while (true) awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial).changes.forEach { it.consume() } }
+        })
 }

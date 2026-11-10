@@ -65,7 +65,7 @@ private val spinEase = CubicBezierEasing(0.65f, 0f, 0.35f, 1f)
  * The green orb with the Equal mark: a matte top-lit green ball (matched to the design),
  * a lime halo and a soft ground shadow.
  *
- * Idle: floats up and down on a 3.6 s loop, drifting a little sideways (on the shared clock, so
+ * Idle: floats gently up and down on a 5 s loop, drifting a touch sideways (on the shared clock, so
  * its bubble can float with it), with ripples spreading out every 1.4 s.
  * Tap: jelly squish, a ripple ring, nine lime sparkles and a wave through the dots.
  * Drag: stretches on a rubber band (with a little 3D tilt) and springs back on release.
@@ -117,8 +117,8 @@ fun Orb(
             .graphicsLayer {
                 val (sway, hover) = orbHover(wall.value)
                 val k = diameter / 112.dp
-                translationX = drag.value.x.dp.toPx() + 2.5f * k * sway * density
-                translationY = drag.value.y.dp.toPx() - 11f * k * hover * density
+                translationX = drag.value.x.dp.toPx() + 1f * k * sway * density
+                translationY = drag.value.y.dp.toPx() - 4f * k * hover * density
             }
             .then(
                 if (!interactive) Modifier else Modifier.pointerInput(Unit) {
@@ -229,7 +229,7 @@ private fun DrawScope.drawGlow(k: Float) {
 /** Soft green shadow on the “ground”, shrinking as the orb rises (it stays put while the orb floats). */
 private fun DrawScope.drawGround(k: Float, hover: Float, sway: Float) {
     val d = density
-    val c = Offset(center.x - 2.5f * k * d * sway, 121f * k * d + 11f * k * d * hover)
+    val c = Offset(center.x - 1f * k * d * sway, 121f * k * d + 4f * k * d * hover)
     val w = 70f * k * d * (1 - 0.28f * hover) / 2 + 6 * d
     val h = 10f * k * d * (1 - 0.28f * hover) / 2 + 6 * d
     val a = 0.18f * (1 - 0.4f * hover)

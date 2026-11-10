@@ -29,16 +29,26 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import ai.equal.orb.model.Language
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.launch
 
 /**
- * One orb for the whole flow. Each screen leaves an [OrbSlot] where its orb belongs; [OrbStage]
- * draws the single orb there, and when the step changes it glides and resizes into the new
- * screen's slot. Bubbles wait for it to land ([OrbFlight.landing]) before they pop in.
+ * One orb for the whole flow. Each screen leaves an [OrbSlot] where its orb belongs. When the
+ * step changes the stage glides the orb into the new screen's slot; once it has settled, the slot
+ * draws it itself, inside the screen's layout, so anything that moves the screen (the keyboard,
+ * options pushing it up) moves the orb with its bubble. Both draw the same orb in the same place,
+ * so the hand-over can't be seen. Bubbles wait for it to land ([OrbFlight.landing]) before they pop in.
  */
 object OrbFlight {
     /** When the orb settles into the current screen's slot (uptime ms). */
     @Volatile var landing = 0L
+
+    /** The stage's orb size; slots scale it to theirs. */
+    val base = 128.dp
 
     /** Called on every step change: the orb is on its way. */
     fun departing() { landing = android.os.SystemClock.uptimeMillis() + 620 }
@@ -66,23 +76,21 @@ fun FlowScreen(model: AppModel, step: Step, content: @Composable () -> Unit) {
     }
 }
 
-/** An empty space the size of the orb, which tells the stage where it is. */
+/** The space the orb sits in: it reports where it is to the stage and, once the orb has settled there, draws it. */
 @Composable
-fun OrbSlot(diameter: Dp, spinning: Boolean = false, rings: Boolean = true, onPlay: (OrbPlay) -> Unit = {}) {
+fun OrbSlot(diameter: Dp, spinning: Boolean = false, rings: Boolean = true) {
     val model = LocalAppModel.current ?: return
     val frame = LocalScreenFrame.current
-    val play by rememberUpdatedState(onPlay)
     var center by remember { mutableStateOf<Offset?>(null) }
     val px = with(LocalDensity.current) { diameter.toPx() }
 
     fun report() {
         val c = center ?: return
         if (frame == null || frame.step != model.step) return
-        model.orbOnPlay = { play(it) }
         model.place(OrbSpot(c, px, spinning, rings))
     }
-    LaunchedEffect(spinning) { report() }
-    Spacer(
+    LaunchedEffect(spinning, rings, diameter) { report() }
+    Box(
         Modifier
             .size(diameter)
             .onGloballyPositioned { coords ->
@@ -91,11 +99,42 @@ fun OrbSlot(diameter: Dp, spinning: Boolean = false, rings: Boolean = true, onPl
                 // Position within the screen itself, so the screen's slide-in doesn't drag the orb along.
                 val c = root.localPositionOf(coords, Offset(coords.size.width / 2f, coords.size.height / 2f))
                 if (c != center) { center = c; report() }
-            }
-    )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (model.orbInSlot && frame?.step == model.step) {
+            OrbBody(spinning, rings, Modifier.wrapContentSize(unbounded = true).graphicsLayer {
+                val s = diameter / OrbFlight.base
+                scaleX = s; scaleY = s
+            })
+        }
+    }
 }
 
-/** Draws the flow's one orb at the current spot, gliding between spots. */
+/** The orb itself at the stage's base size, with its aura. Tapping or dragging it switches what it says to the next language. */
+@Composable
+fun OrbBody(spinning: Boolean, rings: Boolean, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        OrbAura()
+        Orb(diameter = OrbFlight.base, spinning = spinning, rings = rings) { Language.next() }
+    }
+}
+
+/** A wide, faint green light around the orb, fading smoothly to nothing well outside it. Sized for the base orb. */
+@Composable
+fun OrbAura() {
+    val green = hex(0x2FBF5E)
+    Canvas(Modifier.size(OrbFlight.base * 4.2f)) {
+        drawCircle(
+            Brush.radialGradient(
+                0f to green.copy(alpha = 0.22f), 0.2f to green.copy(alpha = 0.17f), 0.42f to green.copy(alpha = 0.10f),
+                0.65f to green.copy(alpha = 0.045f), 0.85f to green.copy(alpha = 0.01f), 1f to green.copy(alpha = 0f),
+            ),
+        )
+    }
+}
+
+/** Draws the flow's one orb at the current spot while it glides between slots. */
 @Composable
 fun OrbStage(model: AppModel) {
     val spot = model.orbSpot ?: return
@@ -104,7 +143,6 @@ fun OrbStage(model: AppModel) {
     val y = remember { Animatable(spot.center.y) }
     val d = remember { Animatable(spot.diameter) }
     var placed by remember { mutableStateOf(false) }
-    val leaving = remember { Animatable(0f) }
 
     LaunchedEffect(spot) {
         val start = if (!placed) model.takeSplashStart() else null
@@ -118,7 +156,7 @@ fun OrbStage(model: AppModel) {
             launch { d.animateTo(spot.diameter, ease) }
             return@LaunchedEffect
         }
-        if (!placed) {
+        if (!placed || model.orbInSlot) {
             x.snapTo(spot.center.x); y.snapTo(spot.center.y); d.snapTo(spot.diameter)
             placed = true
             return@LaunchedEffect
@@ -128,26 +166,22 @@ fun OrbStage(model: AppModel) {
         launch { y.animateTo(spot.center.y, glide) }
         launch { d.animateTo(spot.diameter, glide) }
     }
-    LaunchedEffect(model.orbLeaving) {
-        if (model.orbLeaving) leaving.animateTo(1f, tween(600, easing = EQ.push)) else leaving.snapTo(0f)
-    }
+    if (model.orbInSlot) return
 
-    val base = 128.dp
-    val basePx = with(density) { base.toPx() }
+    val basePx = with(density) { OrbFlight.base.toPx() }
     Box(Modifier.fillMaxSize()) {
-        Orb(
+        OrbBody(
+            spot.spinning, spot.rings,
             Modifier
+                .wrapContentSize(Alignment.TopStart, unbounded = true)
                 .graphicsLayer {
                     val s = d.value / basePx
-                    translationX = x.value - basePx / 2
-                    translationY = y.value - basePx / 2
-                    scaleX = s * (1 + 0.06f * leaving.value); scaleY = scaleX
-                    alpha = 1 - leaving.value
-                }
-                // Only while fading out: Android's blur clips to the view, even at zero.
-                .then(if (leaving.value > 0f) Modifier.blur((8 * leaving.value).dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier),
-            diameter = base, spinning = spot.spinning, rings = spot.rings,
-        ) { model.orbOnPlay?.invoke(it) }
+                    // The body is laid out larger than the orb (its aura): centre it on the spot.
+                    translationX = x.value - size.width / 2
+                    translationY = y.value - size.height / 2
+                    scaleX = s; scaleY = s
+                },
+        )
     }
 }
 
@@ -155,6 +189,6 @@ fun OrbStage(model: AppModel) {
 fun Modifier.orbHover(diameter: Dp, clock: androidx.compose.runtime.State<Float>): Modifier = graphicsLayer {
     val (sway, hover) = orbHover(clock.value)
     val k = diameter.value / 112f
-    translationX = 2.5f * k * sway * density
-    translationY = -11f * k * hover * density
+    translationX = 1f * k * sway * density
+    translationY = -4f * k * hover * density
 }

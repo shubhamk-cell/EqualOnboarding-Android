@@ -9,8 +9,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Debug builds: `adb shell am start -n ai.equal.onboarding.orbbubble/ai.equal.orb.MainActivity --es startStep access`
-        val start = if (BuildConfig.DEBUG) intent.getStringExtra("startStep") else null
+        // Jump to a screen while developing (only adb sends these):
+        // `adb shell am start -n ai.equal.onboarding.orbbubble/ai.equal.orb.MainActivity --es startStep access`
+        val start = intent.getStringExtra("startStep")
         setContent { OrbApp(start) }
     }
 }

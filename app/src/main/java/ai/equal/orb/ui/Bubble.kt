@@ -45,6 +45,16 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
+import ai.equal.orb.model.Catalog
+import ai.equal.orb.model.Language
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -52,90 +62,140 @@ import kotlinx.coroutines.launch
 import kotlin.math.min
 
 /**
- * What the orb is saying in its bubble. Text is typed in and erased character by character.
- * Every type/erase takes a fresh token, so a newer one silently stops an older one mid-way
- * (the playful lines can interrupt a scripted line and then hand back to it).
+ * What the orb is saying in its bubble. Like a chat message: a bubble pops in with the typing
+ * dots, then a new bubble pops in with the whole line. Every line takes a fresh token, so a newer
+ * one silently stops an older one mid-way. Lines are given in English and shown in
+ * [Language.current]; when the language changes, the bubble swaps its line for the new language's.
  */
 class Talk(private val scope: CoroutineScope) {
     var text by mutableStateOf("")
-    /** The line the bubble rests on; playful lines always come back to it. */
+    /** The line the bubble rests on, in English. */
     var full by mutableStateOf("")
+    /** True from the dots until the line is showing; screens wait for it to fall to move on. */
     var typing by mutableStateOf(false)
-    /** Mint fill while Equal is being playful. */
+    /** The three typing dots, shown for a beat before a line appears. */
+    var thinking by mutableStateOf(false)
+    /** Mint fill while the bubble switches language. */
     var alt by mutableStateOf(false)
     /** Bumps each time the bubble should pop in again. */
     var popId by mutableIntStateOf(0)
+    /** The bubble has shrunk back into its orb, between one message and the next. */
+    var out by mutableStateOf(false)
+    /** The first line has shown. Everything else on the page waits for this ([afterOrb]). */
+    var said by mutableStateOf(false)
 
     private var token = 0
-    private var lastPlayful = ""
-    private var playJob: Job? = null
+    private var switchJob: Job? = null
 
-    /** Pops the bubble in empty (once the orb has landed), then types [line] after a short beat. */
-    fun intro(line: String, delayMs: Long = 420, speed: Long = 24) {
+    init {
+        scope.launch {
+            snapshotFlow { Language.current }.drop(1).distinctUntilChanged().collect { retype() }
+        }
+    }
+
+    /** Pops the bubble in with the typing dots (once the orb has landed), then shows [line]. */
+    fun intro(line: String, delayMs: Long = 420) {
         full = line
         text = ""
+        thinking = true
+        typing = true
+        out = false
         popId++
         val my = ++token
         scope.launch {
             OrbFlight.untilLanded()
-            delay(delayMs)
-            if (my == token) type(line, speed)
+            delay(delayMs + THINKING_MS)
+            if (my == token) show(line)
         }
     }
 
-    /** Types [line], replacing whatever is shown. Returns false if something newer took over. */
-    suspend fun type(line: String, speed: Long = 22): Boolean {
-        val my = ++token
-        typing = true
-        text = ""
-        var i = 0
-        while (i < line.length) {
-            if (my != token) return false
-            val cp = line.codePointAt(i)
-            val n = Character.charCount(cp)
-            text += line.substring(i, i + n)
-            i += n
-            delay(speed + if (line[i - 1] in ",.—?!") 90 else 0)
-        }
+    /** Shows the typing dots for a beat, then [line]. Returns false if something newer took over. */
+    suspend fun say(line: String): Boolean {
+        if (!think()) return false
+        val my = token
+        delay(THINKING_MS)
         if (my != token) return false
-        typing = false
+        return show(line)
+    }
+
+    /** Whatever is showing goes back into the orb, and the typing dots come out of it. */
+    suspend fun think(): Boolean {
+        val my = ++token
+        // Already showing the dots: keep them, rather than send them back only to bring out another set.
+        if (thinking && !out) { typing = true; return true }
+        if (!leave(my)) return false
+        text = ""
+        typing = true
+        thinking = true
+        out = false
+        popId++
         return true
     }
 
-    suspend fun erase(speed: Long = 8): Boolean {
+    /**
+     * Shows [line] in full, replacing whatever is there. Returns false if something newer took
+     * over. `leaving = false` swaps the line in place (a language switch) instead of going via the orb.
+     */
+    suspend fun show(line: String, leaving: Boolean = true): Boolean {
         val my = ++token
-        typing = true
-        while (text.isNotEmpty()) {
-            if (my != token) return false
-            val cut = text.offsetByCodePoints(text.length, -1)
-            text = text.substring(0, cut)
-            delay(speed)
-        }
+        if (leaving && !leave(my)) return false
+        thinking = false
+        text = Catalog.translate(line, Language.current)
+        out = false
+        if (leaving) popId++
+        // Let the bubble settle before anything waiting on the line moves on.
+        delay(400)
+        if (my != token) return false
+        typing = false
+        said = true
+        return true
+    }
+
+    /** Takes the bubble away, back into the orb. Returns false if something newer took over. */
+    suspend fun clear(): Boolean {
+        val my = ++token
+        if (!leave(my)) return false
+        text = ""
+        thinking = false
         return my == token
     }
 
-    /** Erase, then type a new resting line. */
-    suspend fun replace(line: String, speed: Long = 22) {
-        full = line
-        erase()
-        type(line, speed)
+    /** The bubble on show shrinks and fades back into its orb. */
+    private suspend fun leave(my: Int): Boolean {
+        if (out || (!thinking && text.isEmpty())) return my == token
+        out = true
+        delay(200)
+        return my == token
     }
 
-    /** Someone poked the orb: nod to it with a playful line, then steer back to the question. */
-    fun playful(pool: List<String>) {
-        val line = pool.filter { it != lastPlayful }.randomOrNull() ?: return
-        lastPlayful = line
-        playJob?.cancel()
-        playJob = scope.launch {
+    /** Clear, then say a new resting line (dots first). */
+    suspend fun replace(line: String) {
+        full = line
+        if (!clear()) return
+        say(line)
+    }
+
+    /** The language changed: swap the resting line for the new language's (mint meanwhile). */
+    private fun retype() {
+        if (full.isEmpty() || text.isEmpty()) return
+        switchJob?.cancel()
+        switchJob = scope.launch {
             alt = true
-            erase(8)
-            if (!type(line, 20) || !isActive) return@launch
-            delay(1600)
-            if (!isActive || !erase(10)) return@launch
+            if (!show(full, leaving = false)) return@launch
+            delay(500)
             alt = false
-            type(full, 22)
         }
     }
+
+    companion object {
+        /** How long the typing dots show before a line appears. */
+        const val THINKING_MS = 800L
+    }
+}
+
+/** Bubbles everywhere step back into their orbs while the page changes. */
+object BubbleStage {
+    var away by mutableStateOf(false)
 }
 
 @Composable
@@ -144,7 +204,7 @@ fun rememberTalk(): Talk {
     return remember { Talk(scope) }
 }
 
-enum class Tail { Bottom, Left, TopLeft, None }
+enum class Tail { Bottom, Left, TopLeft, TopRight, None }
 
 /**
  * Rounded bubble with a comic-book pointer (narrow base, sides curving slightly in, sharp tip),
@@ -173,12 +233,14 @@ private fun bubblePath(size: Size, tail: Tail, radius: Float, d: Float): Path {
         Tail.Left -> quad(0f, size.height / 2, 2f, -9f, -3f, -2f, -12f, 1f, -3f, 3f, 2f, 9f)
         // Off the top-left corner, its sharp tip out to the left near the top.
         Tail.TopLeft -> quad(0f, 0f, 8f, 8f, -2f, 10f, -14f, 4f, -4f, 13f, 6f, 26f)
+        // The user's side: TopLeft mirrored, its tip out to the right near the top.
+        Tail.TopRight -> quad(size.width, 0f, -8f, 8f, 2f, 10f, 14f, 4f, 4f, 13f, -6f, 26f)
         Tail.None -> {}
     }
     return Path().apply { op(body, t, PathOperation.Union) }
 }
 
-private fun DrawScope.drawBubble(tail: Tail, radius: Dp, fill: Color) {
+internal fun DrawScope.drawBubble(tail: Tail, radius: Dp, fill: Color) {
     val path = bubblePath(size, tail, radius.toPx(), density).asAndroidPath()
     drawIntoCanvas { c ->
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
@@ -191,30 +253,56 @@ private fun DrawScope.drawBubble(tail: Tail, radius: Dp, fill: Color) {
     }
 }
 
-/** Live typed text followed by a blinking green caret while typing. */
+/** The bubble's content: the typing dots, or the line itself. */
 @Composable
 private fun TypedText(talk: Talk, size: Float, lineHeight: Float, align: TextAlign, modifier: Modifier = Modifier) {
-    val blink by produceState(true) { while (true) { delay(400); value = !value } }
-    val s = buildAnnotatedString {
-        append(talk.text)
-        if (talk.typing) withStyle(SpanStyle(color = if (blink) EQ.green else Color.Transparent, fontWeight = FontWeight.Medium)) { append("|") }
-    }
-    Txt(s, dm(size, FontWeight.SemiBold, EQ.ink, lineHeight = lineHeight, tracking = -0.02f * size, align = align), modifier)
+    if (talk.thinking) TypingDots((size * 0.36f).dp, modifier)
+    else Txt(talk.text, dm(size, FontWeight.SemiBold, EQ.ink, lineHeight = lineHeight, tracking = -0.02f * size, align = align), modifier)
 }
 
-/** Re-runs the bubble's pop-in (scale .4 → 1, rising 24 dp, with overshoot) whenever [id] changes. */
+/** The standard “someone is typing” dots: three dots rising and brightening in turn. */
 @Composable
-private fun BubblePop(id: Int, origin: TransformOrigin, content: @Composable () -> Unit) {
+fun TypingDots(size: Dp, modifier: Modifier = Modifier) {
+    val clock = rememberWallClock()
+    Row(modifier.padding(vertical = size * 0.5f), horizontalArrangement = Arrangement.spacedBy(size * 0.7f)) {
+        repeat(3) { i ->
+            Box(
+                Modifier.size(size).graphicsLayer {
+                    // Each dot pulses on a 1.2 s loop, a fifth of a loop after the one before.
+                    var phase = (clock.value / 1.2f - i * 0.2f) % 1f
+                    if (phase < 0) phase += 1f
+                    val p = maxOf(0f, kotlin.math.sin(Math.PI.toFloat() * minOf(phase, 0.5f) * 2))
+                    translationY = -size.toPx() * 0.45f * p
+                    alpha = (0.28f + 0.4f * p) / 0.68f
+                }.background(EQ.ink.copy(alpha = 0.68f), CircleShape)
+            )
+        }
+    }
+}
+
+/**
+ * Pops a bubble in, out of its orb, whenever [id] changes (once the orb has landed): it scales up
+ * from small, slides away from the orb and fades from nothing. [fromLeft]: the orb is to its left
+ * (the small orb), otherwise below. [away] (or a page change) sends it back the same way.
+ */
+@Composable
+private fun BubblePop(id: Int, away: Boolean, origin: TransformOrigin, fromLeft: Boolean = false, content: @Composable () -> Unit) {
     val p = remember { Animatable(0f) }
+    var shown by remember { mutableStateOf(false) }
     LaunchedEffect(id) {
+        shown = false
         p.snapTo(0f)
         OrbFlight.untilLanded()
-        p.animateTo(1f, tween(550, easing = EQ.pop))
+        shown = true
+    }
+    val on = shown && !away && !BubbleStage.away
+    LaunchedEffect(on) {
+        if (on) p.animateTo(1f, tween(500, easing = EQ.pop)) else p.animateTo(0f, tween(180, easing = androidx.compose.animation.core.FastOutLinearInEasing))
     }
     Box(Modifier.graphicsLayer {
         val v = p.value
-        scaleX = 0.4f + 0.6f * v; scaleY = scaleX
-        translationY = 24 * density * (1 - v)
+        scaleX = 0.3f + 0.7f * v; scaleY = scaleX
+        if (fromLeft) translationX = -22 * density * (1 - v) else translationY = 22 * density * (1 - v)
         alpha = v.coerceIn(0f, 1f)
         transformOrigin = origin
     }) { content() }
@@ -229,8 +317,8 @@ fun TopBubble(talk: Talk, reserve: String, fontSize: Float = 18f, lineHeight: Fl
     val fill by animateColorAsState(if (talk.alt) EQ.mintAlt else Color.White, tween(250), label = "bubble")
     val pad = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 15.dp)
     Layout(content = {
-        Box(pad) { Txt(reserve, dm(fontSize, FontWeight.SemiBold, lineHeight = lineHeight, tracking = -0.02f * fontSize, align = TextAlign.Center)) }
-        BubblePop(talk.popId, TransformOrigin(0.42f, 1.2f)) {
+        Box(pad) { Txt(Catalog.translate(reserve, Language.current), dm(fontSize, FontWeight.SemiBold, lineHeight = lineHeight, tracking = -0.02f * fontSize, align = TextAlign.Center)) }
+        BubblePop(talk.popId, talk.out, TransformOrigin(0.42f, 1.2f)) {
             Box(Modifier.drawBehind { drawBubble(Tail.Bottom, 22.dp, fill) }.then(pad)) {
                 TypedText(talk, fontSize, lineHeight, TextAlign.Center)
             }
@@ -255,10 +343,12 @@ fun SideBubble(talk: Talk, reserve: String, modifier: Modifier = Modifier, fontS
     val pad = Modifier.padding(horizontal = padH, vertical = padV)
     val middle = tail == Tail.Left
     Box(modifier, contentAlignment = if (middle) Alignment.CenterStart else Alignment.TopStart) {
-        Box(pad.alpha(0f)) { Txt(reserve, dm(fontSize, FontWeight.SemiBold, lineHeight = lineHeight, tracking = -0.02f * fontSize)) }
-        BubblePop(talk.popId, TransformOrigin(-0.05f, if (middle) 0.5f else 0.1f)) {
-            Box((if (hug) Modifier else Modifier.fillMaxWidth()).drawBehind { drawBubble(tail, radius, fill) }.then(pad)) {
-                TypedText(talk, fontSize, lineHeight, TextAlign.Start, if (hug) Modifier else Modifier.fillMaxWidth())
+        Box(pad.alpha(0f)) { Txt(Catalog.translate(reserve, Language.current), dm(fontSize, FontWeight.SemiBold, lineHeight = lineHeight, tracking = -0.02f * fontSize)) }
+        BubblePop(talk.popId, talk.out, TransformOrigin(-0.05f, if (middle) 0.5f else 0.1f), fromLeft = true) {
+            // While the dots show, the bubble hugs them rather than stretching across.
+            val wide = !hug && !talk.thinking
+            Box((if (wide) Modifier.fillMaxWidth() else Modifier).drawBehind { drawBubble(tail, radius, fill) }.then(pad)) {
+                TypedText(talk, fontSize, lineHeight, TextAlign.Start, if (wide) Modifier.fillMaxWidth() else Modifier)
             }
         }
     }
@@ -267,25 +357,29 @@ fun SideBubble(talk: Talk, reserve: String, modifier: Modifier = Modifier, fontS
 /** Big orb with the bubble above it (number, code, name, picks, welcome). */
 @Composable
 fun OrbWithBubble(
-    talk: Talk, reserve: String, playful: List<String>,
+    talk: Talk, reserve: String,
     modifier: Modifier = Modifier, orbDiameter: Dp = 128.dp, spinning: Boolean = false,
+    fontSize: Float = 18f, lineHeight: Float = 23f,
 ) {
     val clock = rememberWallClock()
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Box(Modifier.orbHover(orbDiameter, clock)) { TopBubble(talk, reserve) }
-        OrbSlot(orbDiameter, spinning = spinning) { talk.playful(playful) }
+        Box(Modifier.orbHover(orbDiameter, clock).zIndex(2f)) { TopBubble(talk, reserve, fontSize, lineHeight) }
+        OrbSlot(orbDiameter, spinning = spinning)
     }
 }
 
-/** Small orb (56 dp) with the bubble beside it (permissions, forwarding). */
+/**
+ * Small orb (56 dp) with the bubble beside it: the bubble hangs from the orb's top, its pointer
+ * on the top-left corner, and hugs its text (wrapping when it runs long).
+ */
 @Composable
 fun OrbBesideBubble(
-    talk: Talk, reserve: String, playful: List<String>, modifier: Modifier = Modifier, rings: Boolean = false,
+    talk: Talk, reserve: String, modifier: Modifier = Modifier, rings: Boolean = false,
     fontSize: Float = 17f, lineHeight: Float = 22f, padH: Dp = 16.dp, padV: Dp = 12.dp, radius: Dp = 18.dp,
 ) {
     val clock = rememberWallClock()
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        OrbSlot(56.dp, rings = rings) { talk.playful(playful) }
-        SideBubble(talk, reserve, Modifier.weight(1f).orbHover(56.dp, clock), fontSize, lineHeight, padH, padV, radius)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        OrbSlot(56.dp, rings = rings)
+        SideBubble(talk, reserve, Modifier.weight(1f, fill = false).orbHover(56.dp, clock), fontSize, lineHeight, padH, padV, radius, Tail.TopLeft, hug = true)
     }
 }

@@ -88,7 +88,8 @@ fun OrbApp(startStep: String?) {
     }
 
     val slidePx = with(LocalDensity.current) { 24.dp.roundToPx() }
-    val onSky = model.step.onSky
+    // The forwarding step has its own dark scene, so the white page isn't drawn under it.
+    val onSky = model.step.onSky && model.step != Step.Access
     val showsHome = model.step == Step.Home
     Box(Modifier.fillMaxSize().background(Color.White)) {
         val skyAlpha by animateFloatAsState(if (onSky) 1f else 0f, tween(450), label = "sky")

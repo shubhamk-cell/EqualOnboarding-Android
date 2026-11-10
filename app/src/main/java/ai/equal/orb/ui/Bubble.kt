@@ -45,6 +45,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Language
 import androidx.compose.foundation.background
@@ -240,17 +245,21 @@ private fun bubblePath(size: Size, tail: Tail, radius: Float, d: Float): Path {
     return Path().apply { op(body, t, PathOperation.Union) }
 }
 
-internal fun DrawScope.drawBubble(tail: Tail, radius: Dp, fill: Color) {
-    val path = bubblePath(size, tail, radius.toPx(), density).asAndroidPath()
-    drawIntoCanvas { c ->
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = fill.toArgb()
-            setShadowLayer(11 * density, 0f, 8 * density, hex(0x00280F, 0.13f).toArgb())
-        }
-        c.nativeCanvas.drawPath(path, paint)
-        paint.setShadowLayer(1 * density, 0f, 0.5f * density, hex(0x001E0A, 0.10f).toArgb())
-        c.nativeCanvas.drawPath(path, paint)
-    }
+/** The bubble's outline (body and pointer), for its fill and its shadow. */
+private class BubbleShape(val tail: Tail, val radius: Dp) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        Outline.Generic(bubblePath(size, tail, with(density) { radius.toPx() }, density.density))
+}
+
+/**
+ * The bubble's surface: its fill, and a soft shadow under it drawn by the system from its outline
+ * (cached, so it costs nothing as the bubble floats).
+ */
+private fun Modifier.bubbleSurface(tail: Tail, radius: Dp, fill: Color): Modifier {
+    val shape = BubbleShape(tail, radius)
+    return this
+        .shadow(9.dp, shape, clip = false, ambientColor = hex(0x00280F, 0.10f), spotColor = hex(0x00280F, 0.22f))
+        .background(fill, shape)
 }
 
 /** The bubble's content: the typing dots, or the line itself. */
@@ -319,7 +328,7 @@ fun TopBubble(talk: Talk, reserve: String, fontSize: Float = 18f, lineHeight: Fl
     Layout(content = {
         Box(pad) { Txt(Catalog.translate(reserve, Language.current), dm(fontSize, FontWeight.SemiBold, lineHeight = lineHeight, tracking = -0.02f * fontSize, align = TextAlign.Center)) }
         BubblePop(talk.popId, talk.out, TransformOrigin(0.42f, 1.2f)) {
-            Box(Modifier.drawBehind { drawBubble(Tail.Bottom, 22.dp, fill) }.then(pad)) {
+            Box(Modifier.bubbleSurface(Tail.Bottom, 22.dp, fill).then(pad)) {
                 TypedText(talk, fontSize, lineHeight, TextAlign.Center)
             }
         }
@@ -347,7 +356,7 @@ fun SideBubble(talk: Talk, reserve: String, modifier: Modifier = Modifier, fontS
         BubblePop(talk.popId, talk.out, TransformOrigin(-0.05f, if (middle) 0.5f else 0.1f), fromLeft = true) {
             // While the dots show, the bubble hugs them rather than stretching across.
             val wide = !hug && !talk.thinking
-            Box((if (wide) Modifier.fillMaxWidth() else Modifier).drawBehind { drawBubble(tail, radius, fill) }.then(pad)) {
+            Box((if (wide) Modifier.fillMaxWidth() else Modifier).bubbleSurface(tail, radius, fill).then(pad)) {
                 TypedText(talk, fontSize, lineHeight, TextAlign.Start, if (wide) Modifier.fillMaxWidth() else Modifier)
             }
         }

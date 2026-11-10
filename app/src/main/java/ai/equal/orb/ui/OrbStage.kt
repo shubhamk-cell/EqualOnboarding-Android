@@ -124,7 +124,8 @@ fun OrbBody(spinning: Boolean, rings: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun OrbAura() {
     val green = hex(0x2FBF5E)
-    Canvas(Modifier.size(OrbFlight.base * 4.2f)) {
+    // Cached: the glow never changes, so it isn't redrawn as the orb moves.
+    Canvas(Modifier.size(OrbFlight.base * 4.2f).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
         drawCircle(
             Brush.radialGradient(
                 0f to green.copy(alpha = 0.22f), 0.2f to green.copy(alpha = 0.17f), 0.42f to green.copy(alpha = 0.10f),

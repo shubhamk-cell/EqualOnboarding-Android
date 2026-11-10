@@ -674,7 +674,8 @@ private fun Modifier.curateFate(kept: Boolean, fading: Boolean, index: Int): Mod
             scaleX = s; scaleY = s
             alpha = (1 - fade).coerceIn(0f, 1f)
         }
-        .blur((2 * fade).dp, BlurredEdgeTreatment.Unbounded)
+        // Only while it fades: a blur, even of zero, costs a layer on every frame.
+        .then(if (fade > 0f) Modifier.blur((2 * fade).dp, BlurredEdgeTreatment.Unbounded) else Modifier)
 }
 
 /** Fades the top and bottom edges of a scrolling area. */

@@ -36,14 +36,15 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * The background behind every onboarding screen. Restrained on purpose: white, lit by three large,
+ * The background behind every onboarding screen (over the app's white). Restrained on purpose: white, lit by three large,
  * soft pools of Equal's greens (emerald behind the orb, lime low on the left, teal on the right)
  * that drift and breathe slowly, with a fine film grain that keeps the colour from looking flat or
  * digital. Equal's doodles sit over the top, fading out by the middle of the screen.
  */
 @Composable
 fun Sky(modifier: Modifier = Modifier) {
-    BoxWithConstraints(modifier.fillMaxSize().background(Color.White)) {
+    // One cached layer: the page is only redrawn when the pools move, not every time the orb does.
+    BoxWithConstraints(modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         Spotlight()
         val grain = remember { grainBrush() }
         // Drawn once on its own layer; the pools moving under it don't redraw it.
@@ -88,8 +89,8 @@ private val pools = listOf(
 @Composable
 private fun Spotlight() {
     val clock = rememberWallClock()
-    // They move so slowly that 20 redraws a second look the same as every frame.
-    val t by remember { derivedStateOf { kotlin.math.floor(clock.value * 20f) / 20f } }
+    // They move so slowly that 12 redraws a second look the same as every frame.
+    val t by remember { derivedStateOf { kotlin.math.floor(clock.value * 12f) / 12f } }
     Canvas(Modifier.fillMaxSize().graphicsLayer()) {
         val w = size.width
         for (p in pools) {

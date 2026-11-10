@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The call recordings are looked up by name (AudioClips), so resource shrinking must keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/call_*,@raw/hello_*" />

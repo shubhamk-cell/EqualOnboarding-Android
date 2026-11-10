@@ -35,8 +35,8 @@ import kotlin.random.Random
 @Composable
 fun ForwardingBackdrop(modifier: Modifier = Modifier) {
     val clock = rememberWallClock()
-    // The glows and bokeh move slowly enough that 30 redraws a second look the same as every frame.
-    val t by remember { derivedStateOf { kotlin.math.floor(clock.value * 30f) / 30f } }
+    // The glows and bokeh move slowly enough that 15 redraws a second look the same as every frame.
+    val t by remember { derivedStateOf { kotlin.math.floor(clock.value * 15f) / 15f } }
     BoxWithConstraints(
         modifier
             .fillMaxSize()
@@ -44,7 +44,8 @@ fun ForwardingBackdrop(modifier: Modifier = Modifier) {
     ) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        Canvas(Modifier.fillMaxSize().graphicsLayer()) {
+        // A cached layer, redrawn only as the glows and bokeh move.
+        Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
             // Aurora: two big soft pools drifting slowly.
             for ((i, c) in listOf(hex(0x00B140), hex(0x2BC6A0)).withIndex()) {
                 val a = 2 * PI.toFloat() * t / (24f + 6 * i) + i * 2f

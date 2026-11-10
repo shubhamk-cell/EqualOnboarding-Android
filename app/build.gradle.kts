@@ -18,8 +18,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            // Prototype: signed with the debug key so it installs straight onto a test phone.
+            // Shrunk and optimised by R8 so it runs as smoothly as it can.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Prototype: signed with the debug key so it installs straight onto any test phone.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -45,6 +48,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("com.airbnb.android:lottie-compose:6.6.2")
+    // Applies Compose's ahead-of-time profiles on install, so a sideloaded APK is smooth from the first launch.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -100,7 +100,7 @@ fun AssistantScreen(model: AppModel) {
         chosen = v
         model.voice = v
         model.voiceChosen = true
-        preview.toggle(v, CallLanguage.English, model.addressName)
+        preview.toggle(v, model.primaryLanguage ?: CallLanguage.English, model.addressName)
     }
 
     LaunchedEffect(Unit) {

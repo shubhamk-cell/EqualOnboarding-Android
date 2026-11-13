@@ -188,6 +188,97 @@ object Catalog {
     const val forwardingDone = "Done! Missed calls now come to me"
 
 
+    /** The languages page: first which ones callers speak, then which one to greet them in. */
+    const val languagesAsk = "Which languages do your callers speak? Pick up to\u00A03"
+    const val primaryAsk = "Which one should I greet your callers\u00A0in?"
+
+    /** How Equal answers a caller in [l], for the user called [name]. */
+    fun greeting(l: CallLanguage, name: String) = when (l) {
+        CallLanguage.English -> "Hello! I’m $name’s assistant. How can I help?"
+        CallLanguage.Hindi -> "नमस्ते! मैं $name की असिस्टेंट हूँ। बताइए, कैसे मदद करूँ?"
+        CallLanguage.Hinglish -> "Hello! Main $name ki assistant hoon. Bataiye, kaise help karun?"
+        CallLanguage.Tamil -> "வணக்கம்! நான் $name-இன் உதவியாளர். எப்படி உதவலாம்?"
+        CallLanguage.Telugu -> "నమస్తే! నేను $name అసిస్టెంట్‌ని. ఎలా సహాయం చేయగలను?"
+        CallLanguage.Kannada -> "ನಮಸ್ಕಾರ! ನಾನು $name ಅವರ ಅಸಿಸ್ಟೆಂಟ್. ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
+        CallLanguage.Bengali -> "নমস্কার! আমি $name-এর অ্যাসিস্ট্যান্ট। কীভাবে সাহায্য করতে পারি?"
+        CallLanguage.Marathi -> "नमस्कार! मी $name यांची असिस्टंट. काय मदत करू?"
+        CallLanguage.Malayalam -> "നമസ്കാരം! ഞാൻ $name-ന്റെ അസിസ്റ്റന്റ് ആണ്. എങ്ങനെ സഹായിക്കാം?"
+    }
+
+    /**
+     * The same call in [l]. The recordings are English, so every other language is the same four
+     * turns spoken by the device: the caller asks for the user, Equal answers for them. [voice]
+     * only matters where the verb carries the speaker's gender.
+     */
+    fun script(u: UseCase, name: String, l: CallLanguage, voice: Voice): List<Pair<String, String>> {
+        if (l == CallLanguage.English) return script(u, name)
+        val f = voice.isFemale
+        val lines = when (l) {
+            CallLanguage.Hindi -> listOf(
+                "नमस्ते, क्या यह $name का नंबर है?",
+                "मैं $name की असिस्टेंट हूँ। बताइए, किस बारे में कॉल किया है?",
+                "ठीक है, समझ गया। धन्यवाद!",
+                "कोई बात नहीं! मैं $name को ${if (f) "बता दूँगी" else "बता दूँगा"}।",
+            )
+            CallLanguage.Hinglish -> listOf(
+                "Hello, kya ye $name ka number hai?",
+                "Main $name ki assistant hoon. Bataiye, kis baare mein call kiya hai?",
+                "Theek hai, samajh gaya. Thank you!",
+                "Koi baat nahi! Main $name ko bata ${if (f) "dungi" else "dunga"}.",
+            )
+            CallLanguage.Tamil -> listOf(
+                "வணக்கம், இது $name அவர்களின் எண்ணா?",
+                "நான் $name அவர்களின் உதவியாளர். எதற்காக அழைத்தீர்கள் என்று சொல்லுங்கள்.",
+                "சரி, புரிந்தது. நன்றி!",
+                "பரவாயில்லை! நான் $name அவர்களிடம் சொல்கிறேன்.",
+            )
+            CallLanguage.Telugu -> listOf(
+                "నమస్తే, ఇది $name నంబరేనా?",
+                "నేను $name అసిస్టెంట్‌ని. ఎందుకు కాల్ చేశారో చెప్పండి.",
+                "సరే, అర్థమైంది. ధన్యవాదాలు!",
+                "ఫర్వాలేదు! నేను ${name}కి చెబుతాను.",
+            )
+            CallLanguage.Kannada -> listOf(
+                "ನಮಸ್ಕಾರ, ಇದು $name ಅವರ ನಂಬರ್ ಅಲ್ಲವೇ?",
+                "ನಾನು $name ಅವರ ಅಸಿಸ್ಟೆಂಟ್. ಯಾವ ವಿಷಯಕ್ಕೆ ಕರೆ ಮಾಡಿದ್ದೀರಿ ಹೇಳಿ.",
+                "ಸರಿ, ಅರ್ಥವಾಯಿತು. ಧನ್ಯವಾದಗಳು!",
+                "ಪರವಾಗಿಲ್ಲ! ನಾನು $name ಅವರಿಗೆ ತಿಳಿಸುತ್ತೇನೆ.",
+            )
+            CallLanguage.Bengali -> listOf(
+                "নমস্কার, এটা কি $name-এর নম্বর?",
+                "আমি $name-এর অ্যাসিস্ট্যান্ট। বলুন, কী বিষয়ে ফোন করেছেন?",
+                "ঠিক আছে, বুঝেছি। ধন্যবাদ!",
+                "কোনো ব্যাপার না! আমি $name-কে জানিয়ে দেব।",
+            )
+            CallLanguage.Marathi -> listOf(
+                "नमस्कार, हा $name यांचा नंबर आहे का?",
+                "मी $name यांची असिस्टंट. सांगा, कशासाठी फोन केला आहे?",
+                "ठीक आहे, समजलं. धन्यवाद!",
+                "हरकत नाही! मी $name यांना सांगेन.",
+            )
+            CallLanguage.Malayalam -> listOf(
+                "നമസ്കാരം, ഇത് $name-ന്റെ നമ്പർ അല്ലേ?",
+                "ഞാൻ $name-ന്റെ അസിസ്റ്റന്റ് ആണ്. എന്താവശ്യത്തിനാണ് വിളിച്ചതെന്ന് പറയൂ.",
+                "ശരി, മനസ്സിലായി. നന്ദി!",
+                "സാരമില്ല! ഞാൻ $name-നോട് പറയാം.",
+            )
+            CallLanguage.English -> script(u, name).map { it.second }
+        }
+        return listOf(u.caller to lines[0], "Equal AI" to lines[1], u.caller to lines[2], "Equal AI" to lines[3])
+    }
+
+    /** How Equal opens a call in [l]: the greeting alone, the same length on every card. */
+    fun greetingWord(l: CallLanguage) = when (l) {
+        CallLanguage.English, CallLanguage.Hinglish -> "Hello!"
+        CallLanguage.Hindi -> "नमस्ते!"
+        CallLanguage.Tamil -> "வணக்கம்!"
+        CallLanguage.Telugu -> "నమస్తే!"
+        CallLanguage.Kannada -> "ನಮಸ್ಕಾರ!"
+        CallLanguage.Bengali -> "নমস্কার!"
+        CallLanguage.Marathi -> "नमस्कार!"
+        CallLanguage.Malayalam -> "നമസ്കാരം!"
+    }
+
     /** On the name screen once the name is in. */
     fun genderAsk(name: String) = "Nice to meet you, $name! What’s your gender?"
     /** After the sample calls. */
@@ -240,6 +331,12 @@ object Catalog {
             assistantAsk to mapOf(Lang.Hi to "अब आपने मुझे काम करते देख लिया, बताइए मेरी आवाज़ कैसी हो?",
                            Lang.Ta to "என்னைச் செயலில் பார்த்துவிட்டீர்கள், என் குரல் எப்படி இருக்க வேண்டும்?",
                            Lang.Bn to "আমাকে কাজ করতে দেখলেন, এবার বলুন আমার গলা কেমন হবে?"),
+            languagesAsk to mapOf(Lang.Hi to "आपको कॉल करने वाले कौन-सी भाषाएँ बोलते हैं? ज़्यादा से ज़्यादा 3 चुनिए",
+                Lang.Ta to "உங்களை அழைப்பவர்கள் எந்த மொழிகள் பேசுவார்கள்? 3 வரை தேர்ந்தெடுங்கள்",
+                Lang.Bn to "আপনাকে যাঁরা কল করেন, তাঁরা কোন ভাষায় কথা বলেন? ৩টে পর্যন্ত বেছে নিন"),
+            primaryAsk to mapOf(Lang.Hi to "इनमें से किस भाषा में मैं कॉल करने वालों का स्वागत करूँ?",
+                Lang.Ta to "இவற்றில் எந்த மொழியில் அழைப்பவர்களை நான் வரவேற்கட்டும்?",
+                Lang.Bn to "এর মধ্যে কোন ভাষায় আমি কলারদের স্বাগত জানাব?"),
             pickThree to mapOf(Lang.Hi to "कोई भी 3 चुनिए और झलक देखिए कि मैं आपके सारे कॉल कैसे संभालती हूँ",
                         Lang.Ta to "ஏதேனும் 3-ஐத் தேர்ந்தெடுங்கள், உங்கள் அழைப்புகளை நான் எப்படிக் கவனிப்பேன் என்று பாருங்கள்",
                         Lang.Bn to "যেকোনো ৩টে বেছে নিন, দেখুন আপনার সব কল আমি কীভাবে সামলাই"),

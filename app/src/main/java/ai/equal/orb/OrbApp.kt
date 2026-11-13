@@ -4,6 +4,7 @@ import ai.equal.orb.R
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Lang
 import ai.equal.orb.model.Language
+import ai.equal.orb.model.CallLanguage
 import ai.equal.orb.model.Step
 import ai.equal.orb.overlays.OverlayHost
 import ai.equal.orb.overlays.ToastHost
@@ -68,6 +69,8 @@ fun OrbApp(startStep: String?) {
                 if (it != Step.Phone) phone = "9876543210"
                 if (it == Step.Otp) startOtp()
                 picks.addAll(listOf("task_door", "bank", "task_med"))
+                languages.addAll(listOf(CallLanguage.English, CallLanguage.Hindi, CallLanguage.Tamil))
+                if (it.ordinal > Step.Languages.ordinal) primaryLanguage = CallLanguage.Hindi
             }
         }
     }
@@ -159,6 +162,7 @@ private fun FlowContainer(model: AppModel) {
                         Step.Phone -> PhoneScreen(model)
                         Step.Otp -> OtpScreen(model)
                         Step.Name -> NameScreen(model)
+                        Step.Languages -> LanguagesScreen(model)
                         Step.Cases -> PickThreeScreen(model)
                         Step.Assistant -> AssistantScreen(model)
                         Step.Sim -> SimScreen(model)

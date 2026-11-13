@@ -3,6 +3,7 @@ package ai.equal.orb.screens
 import ai.equal.orb.ui.EMPTY_PAGE_BALANCE
 import ai.equal.orb.ui.selectableLift
 import ai.equal.orb.model.AppModel
+import ai.equal.orb.model.CallLanguage
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Step
 import ai.equal.orb.model.UseCase
@@ -157,11 +158,15 @@ fun PickThreeScreen(model: AppModel) {
     var handing by remember { mutableStateOf(false) }
     /** Each pill's width in the grid, so the picks keep their size when they move. */
     val pillWidths = remember { mutableStateMapOf<String, Dp>() }
-    /** Each pick's call length, worked out once the picks are made, for the time on its button. */
+    /** Each pick's call length per language, worked out once the picks are made, for the time on its button. */
     val lengths = remember { mutableStateMapOf<String, Float>() }
+    /** The language the calls are played in: the one callers are greeted in, until it's switched. */
+    var callLang by remember {
+        mutableStateOf(model.primaryLanguage ?: model.languages.firstOrNull() ?: CallLanguage.English)
+    }
     var showOptions by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
-    /** At least one sample call has been played, which unlocks the way on. */
+    /** At least one sample call has been played (the button then offers to pick up where it stopped). */
     var heard by remember { mutableStateOf(false) }
     val lift = remember { Animatable(0f) }
     val scroll = rememberScrollState()
@@ -198,8 +203,8 @@ fun PickThreeScreen(model: AppModel) {
         launch {
             for (id in picks) {
                 val u = Catalog.useCase(id) ?: continue
-                lengths[id] = withContext(Dispatchers.IO) {
-                    callLength(context, CallPlayer.make(context, u, voice = model.voice, name = model.addressName))
+                lengths[lengthKey(id, callLang)] = withContext(Dispatchers.IO) {
+                    callLength(context, CallPlayer.make(context, u, model.voice, model.addressName, callLang))
                 }
             }
         }
@@ -244,8 +249,21 @@ fun PickThreeScreen(model: AppModel) {
             if (player.playing) player.pause() else player.play()
             return
         }
-        player.load(CallPlayer.make(context, u, voice = model.voice, name = model.addressName), u.id)
+        player.load(CallPlayer.make(context, u, model.voice, model.addressName, callLang), u.id)
         player.play()
+    }
+
+    /** A pill was tapped: the calls are heard in that language from now on, this one included. */
+    fun switchLanguage(l: CallLanguage) {
+        if (l == callLang) return
+        Haptics.select()
+        val wasPlaying = player.playing
+        val current = player.id
+        callLang = l
+        player.stop()
+        val u = current?.let { Catalog.useCase(it) } ?: return
+        player.load(CallPlayer.make(context, u, model.voice, model.addressName, l), u.id)
+        if (wasPlaying) player.play()
     }
 
     LaunchedEffect(Unit) {
@@ -260,6 +278,18 @@ fun PickThreeScreen(model: AppModel) {
     }
     LaunchedEffect(Unit) { revealOptions(talk, { showOptions }, { showOptions = true }, lift) { revealed = true } }
     LaunchedEffect(player.finished) { if (player.finished) Haptics.success() }
+    // Each language has its own lengths: recorded for English, estimated for the rest.
+    LaunchedEffect(callLang, phase) {
+        if (phase == Pick3.Picking) return@LaunchedEffect
+        for (id in model.picks.toList()) {
+            val u = Catalog.useCase(id) ?: continue
+            val key = lengthKey(id, callLang)
+            if (lengths[key] != null) continue
+            lengths[key] = withContext(Dispatchers.IO) {
+                callLength(context, CallPlayer.make(context, u, model.voice, model.addressName, callLang))
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.weight((1f - lift.value).coerceAtLeast(0.0001f)))
@@ -270,12 +300,28 @@ fun PickThreeScreen(model: AppModel) {
             spinning = phase == Pick3.Curating,
         )
 
+        // The calls can be heard in any of the languages picked earlier.
+        AnimatedVisibility(
+            cardContent && model.languages.size > 1,
+            enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EQ.push)) { with(density) { 12.dp.roundToPx() } },
+            exit = ExitTransition.None,
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 42.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Txt("Play in", dm(12.5f, color = EQ.ink.copy(alpha = 0.5f)))
+                model.languages.forEach { l -> LanguagePill(l, l == callLang) { switchLanguage(l) } }
+            }
+        }
+
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val fadeBottom by animateDpAsState(if (expanded) 20.dp else 40.dp, label = "fadeBottom")
             OptionsArea(showOptions, fadeBottom) {
                 SharedTransitionLayout(Modifier.fillMaxSize()) {
                     val padTop by animateDpAsState(
-                        if (expanded) 8.dp else if (phase == Pick3.Picking) 40.dp else 44.dp, tween(450, easing = EQ.push), label = "padTop",
+                        if (expanded) 14.dp else if (phase == Pick3.Picking) 40.dp else 44.dp, tween(450, easing = EQ.push), label = "padTop",
                     )
                     val padBottom by animateDpAsState(if (expanded) 20.dp else 44.dp, tween(450, easing = EQ.push), label = "padBottom")
                     Column(
@@ -303,7 +349,7 @@ fun PickThreeScreen(model: AppModel) {
                                 Stage.Notes -> Column {
                                     model.picks.forEachIndexed { i, id ->
                                         val u = Catalog.useCase(id) ?: return@forEachIndexed
-                                        NoteCard(u, i, player, lengths[id] ?: 0f, cardContent, this@AnimatedContent) { play(u) }
+                                        NoteCard(u, i, player, lengths[lengthKey(id, callLang)] ?: 0f, cardContent, this@AnimatedContent) { play(u) }
                                     }
                                 }
                                 Stage.Gathered -> WrapRows(spacing = 10.dp, modifier = Modifier.fillMaxWidth(), centered = true) {
@@ -358,9 +404,9 @@ fun PickThreeScreen(model: AppModel) {
             enter = fadeIn(tween(400)) + slideInVertically(tween(400, easing = EQ.push)) { with(density) { 30.dp.roundToPx() } },
             exit = ExitTransition.None,
         ) {
-            // Listening to a call comes first; the label says so until one has been played.
+            // Hearing a call is an offer, not a gate: the way on is open from the start.
             PrimaryButton(
-                if (heard) "Continue" else "Listen to a call to continue", enabled = heard,
+                "Continue",
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             ) {
                 player.stop()
@@ -576,22 +622,30 @@ private fun SharedTransitionScope.NoteCard(
                             alpha = pop.value.coerceIn(0f, 1f)
                         }
                         .pressable(enabled = cardContent, scale = 0.96f) { onPlay() }
-                        .height(36.dp)
+                        .height(40.dp)
+                        .shadow(5.dp, CircleShape, ambientColor = hex(0x003214, 0.16f), spotColor = hex(0x003214, 0.16f))
                         .clip(CircleShape)
-                        .background(EQ.green.copy(alpha = 0.13f))
-                        .drawBehind { drawRect(EQ.green.copy(alpha = 0.16f), size = Size(size.width * fill, size.height)) }
-                        .padding(horizontal = 14.dp),
+                        .background(Color.White)
+                        .drawBehind { drawRect(EQ.green.copy(alpha = 0.14f), size = Size(size.width * fill, size.height)) }
+                        .border(1.2.dp, EQ.green.copy(alpha = 0.45f), CircleShape)
+                        .padding(start = 5.dp, end = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (playing) {
-                        Canvas(Modifier.size(11.dp)) {   // pause
-                            val w = size.width * 0.3f
-                            drawRoundRect(EQ.greenDeep, Offset(size.width * 0.1f, 0f), Size(w, size.height), CornerRadius(1.5f))
-                            drawRoundRect(EQ.greenDeep, Offset(size.width * 0.6f, 0f), Size(w, size.height), CornerRadius(1.5f))
+                    // A filled disc, so the button reads as something to press.
+                    Box(Modifier.size(28.dp).background(EQ.green, CircleShape), contentAlignment = Alignment.Center) {
+                        if (playing) {
+                            Canvas(Modifier.size(10.dp)) {   // pause
+                                val w = size.width * 0.32f
+                                drawRoundRect(Color.White, Offset(size.width * 0.08f, 0f), Size(w, size.height), CornerRadius(1.5f))
+                                drawRoundRect(Color.White, Offset(size.width * 0.6f, 0f), Size(w, size.height), CornerRadius(1.5f))
+                            }
+                        } else {
+                            Image(
+                                rememberVectorPainter(Icons.Filled.PlayArrow), null,
+                                Modifier.size(16.dp).offset(x = 1.dp), colorFilter = ColorFilter.tint(Color.White),
+                            )
                         }
-                    } else {
-                        Image(rememberVectorPainter(Icons.Filled.PlayArrow), null, Modifier.size(15.dp), colorFilter = ColorFilter.tint(EQ.greenDeep))
                     }
                     Txt(if (playing) "Pause" else if (started) "Resume" else "Listen to this call", dm(14f, FontWeight.SemiBold, EQ.greenDeep))
                     Txt(
@@ -690,3 +744,24 @@ private fun Modifier.fadeEdges(topDp: Float, bottomDp: Float) = this
             blendMode = BlendMode.DstIn,
         )
     }
+
+/** Where a pick's measured call length is kept: one length per language. */
+private fun lengthKey(id: String, l: CallLanguage) = "$id|${l.name}"
+
+/** One of the languages picked earlier, for hearing the calls in it. */
+@Composable
+private fun LanguagePill(l: CallLanguage, on: Boolean, onClick: () -> Unit) {
+    val fill by animateColorAsState(if (on) EQ.green.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.7f), tween(200), label = "pillFill")
+    val rim by animateColorAsState(if (on) EQ.green else EQ.edge, tween(200), label = "pillRim")
+    val ink by animateColorAsState(if (on) EQ.greenDeep else EQ.ink.copy(alpha = 0.7f), tween(200), label = "pillInk")
+    Box(
+        Modifier
+            .pressable(scale = 0.95f) { onClick() }
+            .height(32.dp)
+            .clip(CircleShape)
+            .background(fill)
+            .border(if (on) 1.3.dp else 1.dp, rim, CircleShape)
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) { Txt(l.label, dm(13.5f, if (on) FontWeight.SemiBold else FontWeight.Medium, ink), maxLines = 1) }
+}

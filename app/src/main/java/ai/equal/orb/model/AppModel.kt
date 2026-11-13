@@ -26,12 +26,13 @@ import kotlinx.coroutines.launch
 
 /**
  * Every stop on the onboarding, in order: a 6-digit code,
- * name and how to address you on one page, pick exactly 3 calls that turn into playable samples in
+ * name and how to address you on one page, the languages callers speak (up to 3) and which one
+ * to greet them in, pick exactly 3 calls that turn into playable samples in
  * place, choose the assistant's voice, then set up. Android has no tracking prompt and no Live
  * Voicemail step; [Access] is call forwarding, which Equal turns on by itself.
  */
 enum class Step {
-    Splash, Phone, Otp, Name, Cases, Assistant, Sim, Access, Welcome, Home;
+    Splash, Phone, Otp, Name, Languages, Cases, Assistant, Sim, Access, Welcome, Home;
 
     val hasBack get() = this != Phone && this != Welcome
     val onSky get() = this != Splash && this != Home
@@ -81,7 +82,7 @@ enum class Voice(val vibe: String, val pitch: Float, val rate: Float) {
     val accent: Long get() = if (isFemale) 0xE0507A else 0x2F6FE0
 }
 
-/** The languages Equal speaks; a voice is previewed in English. */
+/** The languages Equal speaks on calls; a voice is previewed in the one it greets callers in. */
 enum class CallLanguage(val label: String, val initial: String, val speechCode: String) {
     English("English", "E", "en-IN"),
     Hindi("हिन्दी", "ह", "hi-IN"),
@@ -146,6 +147,10 @@ class AppModel(val scope: CoroutineScope) {
     var gender by mutableStateOf<Gender?>(null)
     var whatsapp by mutableStateOf(true)
     val picks = mutableStateListOf<String>()
+    /** The languages the user's callers speak, in the order picked (up to three). */
+    val languages = mutableStateListOf<CallLanguage>()
+    /** The one of [languages] Equal greets callers in (null until chosen). */
+    var primaryLanguage by mutableStateOf<CallLanguage?>(null)
     /** The code is verified: the permission popups are due (they open over the name page). */
     var permissionsDue by mutableStateOf(false)
     var fwdDone by mutableStateOf(false)
@@ -222,7 +227,7 @@ class AppModel(val scope: CoroutineScope) {
     }
 
     /** The screens, in order. */
-    private val route = listOf(Step.Phone, Step.Otp, Step.Name, Step.Cases, Step.Assistant, Step.Sim, Step.Access, Step.Welcome, Step.Home)
+    private val route = listOf(Step.Phone, Step.Otp, Step.Name, Step.Languages, Step.Cases, Step.Assistant, Step.Sim, Step.Access, Step.Welcome, Step.Home)
 
     /** The step after the current one. */
     fun next() {
@@ -243,6 +248,7 @@ class AppModel(val scope: CoroutineScope) {
         }
 
     private fun cta(s: Step) = when (s) {
+        Step.Languages -> "Choose languages"
         Step.Cases -> "Show me how"
         Step.Assistant -> "Choose a voice"
         Step.Sim -> "Choose your SIM"
@@ -314,6 +320,7 @@ class AppModel(val scope: CoroutineScope) {
     fun restart() {
         voice = Voice.Aanya; voiceChosen = false
         phone = ""; name = ""; gender = null; whatsapp = true; picks.clear()
+        languages.clear(); primaryLanguage = null
         perms = listOf(null, null); permissionsDue = false; fwdDone = false; sim = null
         overlay = null; toast = null
         orbSpot = null; orbInSlot = false; settleJob?.cancel(); orbDock = null; dockLanding?.cancel(); dockLanding = null

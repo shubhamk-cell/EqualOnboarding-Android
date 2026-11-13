@@ -254,10 +254,17 @@ class CallPlayer(private val context: Context) {
         private const val GAP = 0.35f
 
         /** The call's script and recordings for [u]. */
-        fun make(context: Context, u: UseCase, voice: Voice, name: String): Script {
-            val lines = Catalog.script(u, name)
-            val audio = lines.mapIndexed { i, l -> AudioClips.raw(context, u.id, i, l.first == "Equal AI", voice) }
-            return Script(lines, audio, voice)
+        fun make(
+            context: Context, u: UseCase, voice: Voice, name: String,
+            language: CallLanguage = CallLanguage.English,
+        ): Script {
+            val lines = Catalog.script(u, name, language, voice)
+            // Only the English call is recorded; the rest are spoken by the device.
+            val audio = lines.mapIndexed { i, l ->
+                if (language != CallLanguage.English) null
+                else AudioClips.raw(context, u.id, i, l.first == "Equal AI", voice)
+            }
+            return Script(lines, audio, voice, language)
         }
     }
 }

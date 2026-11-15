@@ -81,6 +81,8 @@ object EQ {
     val mintAlt = Color(0xFFE9FCEC)
     val ink = Color(0xFF0B1F12)
     val page = Color(0xFFF7F7F7)
+    /** The red of the error states: a wrong code, a number that can't be right, a call that won't load. */
+    val danger = Color(0xFFD93025)
     val secondary = Color(0xFF555555)
     val placeholder = Color(0xFFAAAAAA)
     val hair = Color.Black.copy(alpha = 0.08f)

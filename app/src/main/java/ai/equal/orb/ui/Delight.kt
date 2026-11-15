@@ -195,6 +195,8 @@ class VoicePreview(private val context: Context) {
     var progress by mutableFloatStateOf(0f)
     /** The part of the line said so far. */
     var spoken by mutableStateOf("")
+    /** The last preview couldn't be played (no recording and no voice). */
+    var failed by mutableStateOf(false)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var speech: Speech? = null
@@ -219,6 +221,7 @@ class VoicePreview(private val context: Context) {
 
     fun play(v: Voice, language: CallLanguage, name: String) {
         cardLanguage = null
+        failed = false
         halt()
         val text = Catalog.voiceHello(v, language, name)
         line = text
@@ -253,10 +256,11 @@ class VoicePreview(private val context: Context) {
                 spoken = text.take(end)
                 progress = end.toFloat() / text.length.coerceAtLeast(1)
             },
-            onEnd = {
+            onEnd = { ok ->
                 if (line == text) {
                     spoken = text
                     speaking = null; cardLanguage = null
+                    if (!ok) failed = true
                 }
             },
         )

@@ -70,6 +70,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -278,6 +279,9 @@ fun PickThreeScreen(model: AppModel) {
     }
     LaunchedEffect(Unit) { revealOptions(talk, { showOptions }, { showOptions = true }, lift) { revealed = true } }
     LaunchedEffect(player.finished) { if (player.finished) Haptics.success() }
+    // A call that can't be played says so on its own card.
+    var failedCall by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(player.failed) { if (player.failed) { failedCall = player.id; Haptics.warning() } }
     // Each language has its own lengths: recorded for English, estimated for the rest.
     LaunchedEffect(callLang, phase) {
         if (phase == Pick3.Picking) return@LaunchedEffect
@@ -349,7 +353,10 @@ fun PickThreeScreen(model: AppModel) {
                                 Stage.Notes -> Column {
                                     model.picks.forEachIndexed { i, id ->
                                         val u = Catalog.useCase(id) ?: return@forEachIndexed
-                                        NoteCard(u, i, player, lengths[lengthKey(id, callLang)] ?: 0f, cardContent, this@AnimatedContent) { play(u) }
+                                        NoteCard(
+                                            u, i, player, lengths[lengthKey(id, callLang)] ?: 0f, cardContent,
+                                            failed = failedCall == id, scope = this@AnimatedContent,
+                                        ) { failedCall = null; play(u) }
                                     }
                                 }
                                 Stage.Gathered -> WrapRows(spacing = 10.dp, modifier = Modifier.fillMaxWidth(), centered = true) {
@@ -554,7 +561,7 @@ private fun Sheen(modifier: Modifier) {
 @Composable
 private fun SharedTransitionScope.NoteCard(
     u: UseCase, index: Int, player: CallPlayer, length: Float, cardContent: Boolean,
-    scope: AnimatedVisibilityScope, onPlay: () -> Unit,
+    failed: Boolean, scope: AnimatedVisibilityScope, onPlay: () -> Unit,
 ) {
     val current = player.id == u.id
     val playing = current && player.playing
@@ -626,15 +633,20 @@ private fun SharedTransitionScope.NoteCard(
                         .shadow(5.dp, CircleShape, ambientColor = hex(0x003214, 0.16f), spotColor = hex(0x003214, 0.16f))
                         .clip(CircleShape)
                         .background(Color.White)
-                        .drawBehind { drawRect(EQ.green.copy(alpha = 0.14f), size = Size(size.width * fill, size.height)) }
-                        .border(1.2.dp, EQ.green.copy(alpha = 0.45f), CircleShape)
+                        .drawBehind { if (!failed) drawRect(EQ.green.copy(alpha = 0.14f), size = Size(size.width * fill, size.height)) }
+                        .border(1.2.dp, (if (failed) EQ.danger else EQ.green).copy(alpha = 0.45f), CircleShape)
                         .padding(start = 5.dp, end = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     // A filled disc, so the button reads as something to press.
-                    Box(Modifier.size(28.dp).background(EQ.green, CircleShape), contentAlignment = Alignment.Center) {
-                        if (playing) {
+                    Box(Modifier.size(28.dp).background(if (failed) EQ.danger else EQ.green, CircleShape), contentAlignment = Alignment.Center) {
+                        if (failed) {
+                            Image(
+                                rememberVectorPainter(Icons.Filled.Refresh), null,
+                                Modifier.size(16.dp), colorFilter = ColorFilter.tint(Color.White),
+                            )
+                        } else if (playing) {
                             Canvas(Modifier.size(10.dp)) {   // pause
                                 val w = size.width * 0.32f
                                 drawRoundRect(Color.White, Offset(size.width * 0.08f, 0f), Size(w, size.height), CornerRadius(1.5f))
@@ -647,8 +659,11 @@ private fun SharedTransitionScope.NoteCard(
                             )
                         }
                     }
-                    Txt(if (playing) "Pause" else if (started) "Resume" else "Listen to this call", dm(14f, FontWeight.SemiBold, EQ.greenDeep))
                     Txt(
+                        if (failed) "Couldn’t load · Retry" else if (playing) "Pause" else if (started) "Resume" else "Listen to this call",
+                        dm(14f, FontWeight.SemiBold, if (failed) EQ.danger else EQ.greenDeep),
+                    )
+                    if (!failed) Txt(
                         player.timeLabel(if (started) player.elapsed else length),
                         dm(13f, FontWeight.Medium, EQ.greenDeep.copy(alpha = 0.65f)).copy(fontFeatureSettings = "tnum"),
                     )

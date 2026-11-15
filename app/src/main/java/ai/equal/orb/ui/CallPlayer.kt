@@ -115,6 +115,8 @@ class CallPlayer(private val context: Context) {
     var id by mutableStateOf<String?>(null); private set
     var playing by mutableStateOf(false); private set
     var finished by mutableStateOf(false); private set
+    /** The call couldn't be played at all: no recording, and no voice to read it. */
+    var failed by mutableStateOf(false); private set
     /** 0…1 through the call. */
     var progress by mutableFloatStateOf(0f); private set
     /** Seconds into the call. */
@@ -155,6 +157,7 @@ class CallPlayer(private val context: Context) {
                 ?: (l.second.length * 0.065f + 0.3f)
         }
         finished = false
+        failed = false
         progress = 0f; elapsed = 0f; lineIndex = 0
     }
 
@@ -196,11 +199,21 @@ class CallPlayer(private val context: Context) {
     }
 
     private suspend fun run(start: Int) {
+        /** Lines that made no sound at all; if that's every one of them, the call failed. */
+        var silent = 0
         for (i in start until script.lines.size) {
             lineIndex = i
             val before = lengths.take(i).sum()
             val res = script.audio.getOrNull(i)
-            if (res != null) playFile(res, before) else speak(script.lines[i], before, lengths[i])
+            val heard = if (res != null) playFile(res, before) else speak(script.lines[i], before, lengths[i])
+            if (!heard) silent++
+            if (silent >= 2 && i == start + 1) {
+                // Nothing is coming out: stop rather than running a silent call to the end.
+                failed = true
+                playing = false
+                clock?.cancel(); clock = null
+                return
+            }
             progress = minOf(1f, (before + lengths[i]) / total)
             delay((GAP / speed * 1000).toLong())
         }
@@ -211,8 +224,9 @@ class CallPlayer(private val context: Context) {
         finished = true
     }
 
-    private suspend fun playFile(res: Int, before: Float) {
-        val p = MediaPlayer.create(context, res) ?: return
+    /** Returns false when the recording couldn't be played. */
+    private suspend fun playFile(res: Int, before: Float): Boolean {
+        val p = MediaPlayer.create(context, res) ?: return false
         audio = p
         val done = CompletableDeferred<Unit>()
         p.setOnCompletionListener { done.complete(Unit) }
@@ -227,11 +241,13 @@ class CallPlayer(private val context: Context) {
         } finally {
             if (audio === p) { audio = null; p.release() }
         }
+        return true
     }
 
     // MARK: System voice (fallback)
 
-    private suspend fun speak(l: Pair<String, String>, before: Float, length: Float) {
+    /** Returns false when there's no voice to read the line. */
+    private suspend fun speak(l: Pair<String, String>, before: Float, length: Float): Boolean {
         val isEqual = l.first == "Equal AI"
         val text = AudioClips.spoken(l.second)
         val v = script.voice
@@ -248,6 +264,7 @@ class CallPlayer(private val context: Context) {
         }
         // No speech engine: let the line's time pass in silence so the call still runs.
         if (!spoke) delay((length / speed * 1000).toLong())
+        return spoke
     }
 
     companion object {

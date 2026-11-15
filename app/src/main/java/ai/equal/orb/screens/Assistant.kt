@@ -8,6 +8,7 @@ import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Gender
 import ai.equal.orb.model.Voice
 import ai.equal.orb.ui.CheckBadge
+import ai.equal.orb.ui.Device
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.GenderMark
 import ai.equal.orb.ui.Haptics
@@ -66,9 +67,11 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -87,6 +90,7 @@ import kotlin.math.sin
 fun AssistantScreen(model: AppModel) {
     val talk = rememberTalk()
     val preview = rememberVoicePreview()
+    val context = LocalContext.current
     var chosen by remember { mutableStateOf<Voice?>(null) }
     var revealed by remember { mutableStateOf(false) }
     /** 0 → 1 as the grid opens under the orb (the orb glides up to make room). */
@@ -118,6 +122,12 @@ fun AssistantScreen(model: AppModel) {
         }
     }
     DisposableEffect(Unit) { onDispose { preview.stop() } }
+    // Nothing came out: say why, rather than leaving a card that looks broken.
+    LaunchedEffect(preview.failed) {
+        if (preview.failed) { Haptics.warning(); model.showToast("Couldn’t play that preview. Tap the card to try again.") }
+    }
+    // The ring switch is off, so a preview would play into silence.
+    val silent = remember { Device.silent(context) }
 
     val buttonAlpha by animateFloatAsState(if (revealed) 1f else 0f, tween(400, delayMillis = 400), label = "cta")
     val p = grid.value
@@ -146,6 +156,11 @@ fun AssistantScreen(model: AppModel) {
                 }
             }
         }
+        if (silent && chosen != null) Txt(
+            "🔇  Your phone is on silent — turn it up to hear the voices",
+            dm(13f, color = EQ.ink.copy(alpha = 0.6f), align = TextAlign.Center),
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp),
+        )
         Spacer(Modifier.weight(1f))
         // The button below roughly balances the top bar above, so nothing more is needed here.
         PrimaryButton(

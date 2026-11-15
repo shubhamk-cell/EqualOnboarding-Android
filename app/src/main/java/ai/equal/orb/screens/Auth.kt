@@ -8,6 +8,7 @@ import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Gender
 import ai.equal.orb.model.Step
+import ai.equal.orb.ui.Device
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.GenderMark
 import ai.equal.orb.ui.Haptics
@@ -77,6 +78,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -94,6 +96,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -151,8 +154,12 @@ fun PhoneScreen(model: AppModel) {
     val talk = rememberTalk()
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val arriving = model.arrivingFromSplash
     val title = Catalog.title(Catalog.Ask.Phone)
+    /** The number can't be an Indian mobile: the pill turns red and the orb says why. */
+    var invalid by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         talk.intro(title, if (arriving) 750 else 420)
@@ -166,6 +173,19 @@ fun PhoneScreen(model: AppModel) {
     }
     fun send() {
         if (model.phone.length != 10) return
+        // Indian mobile numbers start 6–9; anything else never gets an SMS.
+        if (model.phone.first() !in '6'..'9') {
+            invalid = true
+            Haptics.warning()
+            scope.launch { talk.replace(Catalog.badNumber) }
+            return
+        }
+        // The code has to come over the network: say so rather than hanging on a dead send.
+        if (!Device.online(context)) {
+            Haptics.warning()
+            model.showToast("You’re offline. Connect and tap send again.")
+            return
+        }
         focusManager.clearFocus()
         model.go(Step.Otp)
     }
@@ -176,14 +196,21 @@ fun PhoneScreen(model: AppModel) {
         OrbWithBubble(talk, title)
     }) {
         Column(Modifier.afterOrb(talk), horizontalAlignment = Alignment.CenterHorizontally) {
-            InputPill(filled = model.phone.isNotEmpty(), canSend = model.phone.length == 10, onSend = ::send, sendLabel = "Send OTP") {
+            InputPill(
+                filled = model.phone.isNotEmpty(), canSend = model.phone.length == 10 && !invalid,
+                onSend = ::send, sendLabel = "Send OTP", error = invalid,
+            ) {
                 Txt("🇮🇳 +91", dm(17f, FontWeight.Medium, EQ.ink))
                 Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(26.dp).background(EQ.ink.copy(alpha = 0.15f)))
                 Field(
                     value = model.phone, placeholder = "Mobile number", focus = focus,
                     keyboard = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
                     onDone = ::send,
-                ) { v -> model.phone = tenDigits(v, model.phone) }
+                ) { v ->
+                    model.phone = tenDigits(v, model.phone)
+                    // The next keystroke puts the question back and clears the red.
+                    if (invalid) { invalid = false; scope.launch { talk.replace(title) } }
+                }
             }
             Spacer(Modifier.height(14.dp))
             Row(
@@ -236,14 +263,29 @@ fun OtpScreen(model: AppModel) {
     val title = Catalog.title(Catalog.Ask.Otp)
     val digits = model.otpDigits
     val verifying = model.otpVerifying
+    val wrong = model.otpWrong
     val length = 6
     val long = true
     val spaced = model.phone.let { if (it.length == 10) "${it.take(5)} ${it.takeLast(5)}" else it }
+    // The cells are a text field in disguise: tapping them raises the keyboard, and typing takes
+    // over from the pretend SMS.
+    val focus = remember { FocusRequester() }
+    val typed = digits.joinToString("")
 
     LaunchedEffect(Unit) {
         talk.intro(title)
         // Belt and braces: if the code never started filling (e.g. opened another way), start it.
         if (model.otpDigits.isEmpty() && !model.otpVerifying) model.startOtp()
+    }
+    // The orb says what's wrong, and takes it back once the next digit is typed.
+    LaunchedEffect(wrong) {
+        if (wrong) talk.replace(Catalog.wrongCode) else if (talk.full == Catalog.wrongCode) talk.replace(title)
+    }
+    /** A quick sideways shake when the code doesn't match. */
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(wrong) {
+        if (!wrong) return@LaunchedEffect
+        for (x in listOf(-10f, 9f, -6f, 4f, 0f)) shake.animateTo(x, tween(55))
     }
 
     QuestionLayout(main = {
@@ -251,15 +293,33 @@ fun OtpScreen(model: AppModel) {
             OrbWithBubble(talk, title)
             Spacer(Modifier.height(32.dp))
             Column(Modifier.afterOrb(talk), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(horizontalArrangement = Arrangement.spacedBy(if (long) 8.dp else 12.dp)) {
-                    for (i in 0 until length) {
-                        val filled = i < digits.size
-                        OtpCell(if (filled) digits[i] else "", filled, long, Modifier.weight(1f))
+                Box {
+                    // Invisible, but it owns the keyboard and the typed digits.
+                    BasicTextField(
+                        value = typed,
+                        onValueChange = { model.typeOtp(it) },
+                        modifier = Modifier.matchParentSize().focusRequester(focus).alpha(0f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { model.confirmOtp() }),
+                        textStyle = dm(1f),
+                        cursorBrush = SolidColor(Color.Transparent),
+                    )
+                    Row(
+                        Modifier
+                            .graphicsLayer { translationX = shake.value * density }
+                            .pressable { runCatching { focus.requestFocus() } },
+                        horizontalArrangement = Arrangement.spacedBy(if (long) 8.dp else 12.dp),
+                    ) {
+                        for (i in 0 until length) {
+                            val filled = i < digits.size
+                            OtpCell(if (filled) digits[i] else "", filled, wrong, long, Modifier.weight(1f))
+                        }
                     }
                 }
                 Txt(
-                    if (verifying) "Verifying…" else "Reading the SMS automatically…",
-                    dm(14f, color = EQ.ink.copy(alpha = 0.62f)), Modifier.padding(top = 14.dp),
+                    if (wrong) "Tap the boxes to type it again" else if (verifying) "Verifying…" else "Reading the SMS automatically…",
+                    dm(14f, color = if (wrong) EQ.danger else EQ.ink.copy(alpha = 0.62f)),
+                    Modifier.padding(top = 14.dp),
                 )
                 Box(Modifier.padding(top = 6.dp)) {
                     // The number, with a small pencil to go back and change it.
@@ -278,26 +338,27 @@ fun OtpScreen(model: AppModel) {
     }) {
         // Ready to tap once the code is in, in case verifying is ever slow.
         PrimaryButton(
-            if (verifying) "Verifying…" else "Confirm", enabled = digits.size >= length, loading = verifying,
+            if (verifying) "Verifying…" else "Confirm", enabled = digits.size >= length && !wrong, loading = verifying,
             modifier = Modifier.afterOrb(talk, index = 1),
         ) { model.confirmOtp() }
     }
 }
 
 @Composable
-private fun OtpCell(text: String, filled: Boolean, long: Boolean, modifier: Modifier) {
+private fun OtpCell(text: String, filled: Boolean, wrong: Boolean, long: Boolean, modifier: Modifier) {
     val pop = remember { Animatable(1f) }
     LaunchedEffect(filled) {
         if (filled) {
             pop.animateTo(1.14f, tween(130)); pop.animateTo(1f, tween(170))
         }
     }
-    val stroke by animateColorAsState(if (filled) EQ.green else EQ.edge, tween(200), label = "otp")
+    val stroke by animateColorAsState(if (wrong) EQ.danger else if (filled) EQ.green else EQ.edge, tween(200), label = "otp")
+    val ink by animateColorAsState(if (wrong) EQ.danger else EQ.ink, tween(200), label = "otpInk")
     Box(
         modifier.height(PRIMARY_BUTTON_HEIGHT).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
             .glass(RoundedCornerShape(if (long) 16.dp else 18.dp), tint = 0.62f, stroke = stroke),
         contentAlignment = Alignment.Center,
-    ) { Txt(text, dm(if (long) 24f else 26f, FontWeight.SemiBold, EQ.ink)) }
+    ) { Txt(text, dm(if (long) 24f else 26f, FontWeight.SemiBold, ink)) }
 }
 
 // MARK: - Name
@@ -316,6 +377,8 @@ fun NameScreen(model: AppModel) {
     val title = Catalog.title(Catalog.Ask.Name)
     var text by remember { mutableStateOf(model.name) }
     var askedForName by remember { mutableStateOf(false) }
+    /** What was typed can't be a name: the pill turns red and the orb says why. */
+    var badName by remember { mutableStateOf(false) }
     /** The name is in, and the same page now asks how to address them. */
     var askingGender by remember { mutableStateOf(false) }
     var gendersShown by remember { mutableStateOf(false) }
@@ -342,6 +405,13 @@ fun NameScreen(model: AppModel) {
 
     fun submit() {
         if (trimmed.isEmpty()) return
+        // A name needs letters, and 30 characters is plenty.
+        if (trimmed.none(Char::isLetter) || trimmed.length > 30) {
+            badName = true
+            Haptics.warning()
+            scope.launch { talk.replace(Catalog.badName) }
+            return
+        }
         model.name = trimmed
         focusManager.clearFocus()
         // How to address them is asked on the same page.
@@ -432,13 +502,18 @@ fun NameScreen(model: AppModel) {
                     exit = fadeOut(tween(180, easing = FastOutLinearInEasing)) + slideOutVertically(tween(180)) { (110 * px).toInt() }
                         + shrinkVertically(tween(300, easing = EQ.ease), shrinkTowards = Alignment.Top),
                 ) {
-                    InputPill(filled = text.isNotEmpty(), canSend = trimmed.isNotEmpty(), onSend = ::submit, sendLabel = "Continue",
-                        modifier = Modifier.afterOrb(talk)) {
+                    InputPill(
+                        filled = text.isNotEmpty(), canSend = trimmed.isNotEmpty() && !badName, onSend = ::submit,
+                        sendLabel = "Continue", modifier = Modifier.afterOrb(talk), error = badName,
+                    ) {
                         Field(
                             value = text, placeholder = "Your name", focus = focus,
                             keyboard = KeyboardOptions(capitalization = KeyboardCapitalization.Words, autoCorrectEnabled = false, imeAction = ImeAction.Next),
                             onDone = ::submit,
-                        ) { text = it }
+                        ) {
+                            text = it
+                            if (badName) { badName = false; scope.launch { talk.replace(title) } }
+                        }
                     }
                 }
                 // Back here with a choice already ticked: tapping it again isn't obvious, so the
@@ -520,10 +595,14 @@ private fun GenderCard(g: Gender, on: Boolean, modifier: Modifier, onClick: () -
 @Composable
 fun InputPill(
     filled: Boolean, canSend: Boolean, onSend: () -> Unit, sendLabel: String = "Send", modifier: Modifier = Modifier,
+    error: Boolean = false,
     field: @Composable RowScope.() -> Unit,
 ) {
-    val rim by animateColorAsState(if (filled) EQ.green else EQ.edge, tween(200), label = "rim")
-    val ring by animateColorAsState(if (filled) EQ.green.copy(alpha = 0.12f) else Color.Transparent, tween(200), label = "ring")
+    val rim by animateColorAsState(if (error) EQ.danger else if (filled) EQ.green else EQ.edge, tween(200), label = "rim")
+    val ring by animateColorAsState(
+        if (error) EQ.danger.copy(alpha = 0.10f) else if (filled) EQ.green.copy(alpha = 0.12f) else Color.Transparent,
+        tween(200), label = "ring",
+    )
     val send by animateColorAsState(if (canSend) EQ.green else hex(0xBFE6CB), tween(200), label = "send")
     val pill = RoundedCornerShape(50)
     Row(
@@ -536,7 +615,7 @@ fun InputPill(
             }
             .shadow(10.dp, pill, ambientColor = hex(0x003214, 0.08f), spotColor = hex(0x003214, 0.12f))
             .background(Color.White, pill)
-            .border(if (filled) 1.5.dp else 1.dp, rim, pill)
+            .border(if (filled || error) 1.5.dp else 1.dp, rim, pill)
             .padding(start = 20.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

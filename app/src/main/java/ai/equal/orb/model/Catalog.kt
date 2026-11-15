@@ -184,8 +184,14 @@ object Catalog {
         Ask.Welcome -> "Welcome to Equal, $name!"
     }
 
+    /** When something has gone wrong, in the orb's own voice. */
+    const val badNumber = "That doesn’t look like an Indian mobile number. Check it once?"
+    const val badName = "That doesn’t look like a name — letters only, please."
+    const val wrongCode = "That code doesn’t match. Check the SMS and try again."
+
     const val curating = "Curating sample calls from your picks…"
     const val forwardingDone = "Done! Missed calls now come to me"
+    const val forwardingWaiting = "I need a connection for this — I’ll start as soon as it’s back"
 
 
     /** The languages page: first which ones callers speak, then which one to greet them in. */

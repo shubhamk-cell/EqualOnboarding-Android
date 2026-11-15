@@ -124,6 +124,9 @@ sealed interface Overlay {
 /** The orb's last flight, from Welcome into Home's Equal button (root coordinates, px). */
 data class OrbDock(val frame: Rect, val morph: Float = 0f)
 
+/** The code the pretend SMS carries, and the only one that verifies. */
+private const val THE_CODE = "482715"
+
 class AppModel(val scope: CoroutineScope) {
     /** The app opens on Home; the onboarding is started from the profile tab. */
     var step by mutableStateOf(Step.Home)
@@ -141,6 +144,8 @@ class AppModel(val scope: CoroutineScope) {
     /** The code screen's digits as the pretend SMS fills them, and whether it's verifying. */
     val otpDigits = mutableStateListOf<String>()
     var otpVerifying by mutableStateOf(false)
+    /** The code typed by hand doesn't match: the cells turn red until the next keystroke. */
+    var otpWrong by mutableStateOf(false)
     private var otpJob: Job? = null
     var name by mutableStateOf("")
     /** How Equal addresses the user on calls. */
@@ -286,7 +291,8 @@ class AppModel(val scope: CoroutineScope) {
         otpJob?.cancel()
         otpDigits.clear()
         otpVerifying = false
-        val code = listOf("4", "8", "2", "7", "1", "5")
+        otpWrong = false
+        val code = THE_CODE.map { it.toString() }
         otpJob = scope.launch {
             // Give the SMS a moment to “arrive” (and the orb to ask) before the code fills in.
             delay(3000)
@@ -302,9 +308,32 @@ class AppModel(val scope: CoroutineScope) {
         }
     }
 
+    /**
+     * The code typed by hand: the pretend SMS stops, and once six digits are in they're checked.
+     * A wrong code turns the cells red; the next keystroke clears them.
+     */
+    fun typeOtp(text: String) {
+        otpJob?.cancel()
+        val all = text.filter(Char::isDigit)
+        // Typing over a wrong code starts a fresh one, rather than running into the six-digit cap.
+        val digits = if (otpWrong && all.length > otpDigits.size) all.takeLast(1) else all.take(6)
+        otpWrong = false
+        otpDigits.clear()
+        digits.forEach { otpDigits.add(it.toString()) }
+        if (digits.length < 6) return
+        if (digits == THE_CODE) {
+            otpVerifying = true
+            Haptics.select()
+            scope.launch { delay(650); confirmOtp() }
+        } else {
+            otpWrong = true
+            Haptics.warning()
+        }
+    }
+
     /** Code verified (automatically, or Confirm tapped once it's in): on to Name. */
     fun confirmOtp() {
-        if (step != Step.Otp) return
+        if (step != Step.Otp || otpWrong) return
         otpJob?.cancel()
         Haptics.success()
         go(Step.Name, haptic = false)

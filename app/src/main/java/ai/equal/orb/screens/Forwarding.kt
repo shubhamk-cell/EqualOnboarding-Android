@@ -5,6 +5,7 @@ import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Step
 import ai.equal.orb.ui.CelebrationBurst
 import ai.equal.orb.ui.CheckBadge
+import ai.equal.orb.ui.Device
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.OrbWithBubble
@@ -60,6 +61,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -107,6 +109,9 @@ fun AccessScreen(model: AppModel) {
     val spread = remember { Animatable(0f) }
     var burst by remember { mutableIntStateOf(0) }
     val clock = rememberWallClock()
+    val context = LocalContext.current
+    /** Forwarding codes go over the mobile network: without it, the page waits. */
+    var waiting by remember { mutableStateOf(false) }
 
     // Where the orb is, in this screen's coordinates.
     var root by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -118,6 +123,15 @@ fun AccessScreen(model: AppModel) {
         while (!talk.said) delay(50)
         if (!model.fwdDone) {
             spread.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 60f))
+            // Wait for the mobile network rather than sending a code that can't go anywhere.
+            if (!Device.online(context)) {
+                waiting = true
+                talk.replace(Catalog.forwardingWaiting)
+                while (!Device.online(context)) delay(1000)
+                waiting = false
+                talk.replace(title)
+                delay(400)
+            }
             delay(SETUP_MS)
             spread.animateTo(0f, tween(450, easing = EQ.push))
             model.fwdDone = true
@@ -162,7 +176,7 @@ fun AccessScreen(model: AppModel) {
             )
             Spacer(Modifier.weight(1f))
             StatusLine(
-                if (model.fwdDone) "Call forwarding is on" else "Setting up call forwarding…",
+                if (model.fwdDone) "Call forwarding is on" else if (waiting) "Waiting for the network…" else "Setting up call forwarding…",
                 done = model.fwdDone,
                 modifier = Modifier.padding(horizontal = 24.dp).padding(bottom = 16.dp).afterOrb(talk, index = 1),
             )

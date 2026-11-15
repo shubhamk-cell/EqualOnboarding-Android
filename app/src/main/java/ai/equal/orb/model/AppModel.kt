@@ -4,6 +4,7 @@ import ai.equal.orb.ui.BubbleStage
 import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.OrbFlight
 import ai.equal.orb.ui.OrbSpot
+import ai.equal.orb.ui.SetupBlock
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -23,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Every stop on the onboarding, in order: a 6-digit code,
@@ -37,6 +39,16 @@ enum class Step {
     val hasBack get() = this != Phone && this != Welcome
     val onSky get() = this != Splash && this != Home
 }
+
+/**
+ * Which shape of the onboarding is being run, chosen on the profile page.
+ *
+ * [Standard] is the flow as it stands: name, languages, picks, voice, then the SIM and call
+ * forwarding at the end. [SimFirst] moves the SIM question up to right after the code — so the
+ * permission popups land there too — and then, with the SIM already settled, sets call forwarding
+ * up quietly in the background while the user is busy with the sample calls and the voice.
+ */
+enum class Variant { Standard, SimFirst }
 
 /** The languages the orb can speak. Tapping the orb steps through them in this order. */
 enum class Lang(val label: String) { En("English"), Hi("हिन्दी"), Ta("தமிழ்"), Bn("বাংলা") }
@@ -127,9 +139,21 @@ data class OrbDock(val frame: Rect, val morph: Float = 0f)
 /** The code the pretend SMS carries, and the only one that verifies. */
 private const val THE_CODE = "482715"
 
+/**
+ * Call forwarding set up quietly behind the sample calls ([Variant.SimFirst] only), instead of on
+ * a loading screen of its own. [Off] = not being tried, so nothing is shown and the ordinary
+ * walkthrough follows.
+ */
+enum class BgSetup { Off, Working, Done, Failed }
+
+/** How long the quiet attempt is given before it counts as failed. */
+private const val BG_TIMEOUT_MS = 20_000L
+
 class AppModel(val scope: CoroutineScope) {
     /** The app opens on Home; the onboarding is started from the profile tab. */
     var step by mutableStateOf(Step.Home)
+    /** Which shape of the onboarding this run is. */
+    var variant by mutableStateOf(Variant.Standard)
     var voice by mutableStateOf(Voice.Aanya)
     /** A voice has been picked on the assistant page (so coming back shows it marked). */
     var voiceChosen by mutableStateOf(false)
@@ -159,6 +183,18 @@ class AppModel(val scope: CoroutineScope) {
     /** The code is verified: the permission popups are due (they open over the name page). */
     var permissionsDue by mutableStateOf(false)
     var fwdDone by mutableStateOf(false)
+    /** The quiet attempt at call forwarding, started when the sample calls open (SIM-first only). */
+    var bgSetup by mutableStateOf(BgSetup.Off)
+    /** The “it's on” strip has been held long enough and has faded away. */
+    var bgStripGone by mutableStateOf(false)
+    /** Demo switch: the quiet attempt fails on purpose (long-press the strip, or a launch extra). */
+    var bgDemoFail = false
+    private var bgJob: Job? = null
+    /**
+     * The forwarding walkthrough is being reached because the quiet attempt didn't get there: the
+     * orb introduces it as one last thing rather than as the next stage of setting up.
+     */
+    var fwdFallback by mutableStateOf(false)
     /** The SIM Equal takes calls on (0 or 1; null until one is picked). */
     var sim by mutableStateOf<Int?>(null)
     /** Notifications, contacts: granted? (null = not asked yet, which counts as off too.) */
@@ -231,8 +267,16 @@ class AppModel(val scope: CoroutineScope) {
         step = to
     }
 
-    /** The screens, in order. */
-    private val route = listOf(Step.Phone, Step.Otp, Step.Name, Step.Languages, Step.Cases, Step.Assistant, Step.Sim, Step.Access, Step.Welcome, Step.Home)
+    /** The screens, in order — the SIM sits in a different place in each variant. */
+    private val route: List<Step>
+        get() = when (variant) {
+            Variant.Standard ->
+                listOf(Step.Phone, Step.Otp, Step.Name, Step.Languages, Step.Cases, Step.Assistant, Step.Sim, Step.Access, Step.Welcome, Step.Home)
+            // The SIM right after the code (the permission popups land over it), and no forwarding
+            // step of its own unless the quiet attempt doesn't get there.
+            Variant.SimFirst ->
+                listOf(Step.Phone, Step.Otp, Step.Sim, Step.Name, Step.Languages, Step.Cases, Step.Assistant, Step.Access, Step.Welcome, Step.Home)
+        }
 
     /** The step after the current one. */
     fun next() {
@@ -254,13 +298,83 @@ class AppModel(val scope: CoroutineScope) {
 
     private fun cta(s: Step) = when (s) {
         Step.Languages -> "Choose languages"
-        Step.Cases -> "Show me how"
+        // Names the next three screens. “Show me how”, straight after the greeting question, read
+        // as a promise to play the greeting.
+        Step.Cases -> "See Equal in action"
         Step.Assistant -> "Choose a voice"
         Step.Sim -> "Choose your SIM"
+        Step.Name -> "Add your name"
         Step.Access -> "Activate on this SIM"
         Step.Welcome -> "Finish setup"
         Step.Home -> "Go to Home"
         else -> "Continue"
+    }
+
+    // MARK: Call forwarding in the background (SIM-first variant)
+
+    /**
+     * Starts setting up call forwarding while the user is picking sample calls, if the phone is in
+     * a state where that could work at all ([block]). It is started once: coming back to the picks
+     * screen doesn't restart it, and nothing waits on it.
+     *
+     * In the app this would dial the carrier's forwarding code; here it's a timer, because the
+     * real thing puts the carrier's own response sheet over whatever is on screen.
+     */
+    fun startBackgroundSetup(block: SetupBlock) {
+        if (variant != Variant.SimFirst || bgSetup != BgSetup.Off || bgJob != null || fwdDone) return
+        if (block != SetupBlock.None) return
+        bgSetup = BgSetup.Working
+        bgJob = scope.launch {
+            // Carrier rejected the code, the user dismissed the carrier's sheet, or it simply
+            // never came back: all of them land here as one soft failure.
+            val ok = withTimeoutOrNull(BG_TIMEOUT_MS) {
+                delay((9_000..14_000).random().toLong())
+                !bgDemoFail
+            } ?: false
+            bgJob = null
+            if (ok) {
+                fwdDone = true
+                bgSetup = BgSetup.Done
+                Haptics.land()
+                // Held long enough to be read, then out of the way.
+                delay(2000)
+                bgStripGone = true
+            } else {
+                bgSetup = BgSetup.Failed
+                Haptics.warning()
+            }
+        }
+    }
+
+    /** The demo's failure path: a long-press on the strip gives up on the quiet attempt. */
+    fun failBackgroundSetup() {
+        if (bgSetup != BgSetup.Working) return
+        bgJob?.cancel(); bgJob = null
+        bgSetup = BgSetup.Failed
+        Haptics.warning()
+    }
+
+    /**
+     * Leaving the voice step. Forwarding already on → straight to the welcome; still going → the
+     * welcome holds for it; failed or never tried → the walkthrough, which is all this variant
+     * ever risks losing.
+     */
+    fun finishVoiceStep() {
+        when (bgSetup) {
+            BgSetup.Done, BgSetup.Working -> go(Step.Welcome)
+            BgSetup.Failed -> { fwdFallback = true; next() }
+            BgSetup.Off -> next()
+        }
+    }
+
+    /** The voice step's button, which says where that tap will actually land. */
+    val voiceCta: String
+        get() = cta(if (bgSetup == BgSetup.Done || bgSetup == BgSetup.Working) Step.Welcome else route.getOrNull(route.indexOf(Step.Assistant) + 1) ?: Step.Welcome)
+
+    /** The quiet attempt didn't get there: the walkthrough, introduced as one last thing. */
+    fun fallBackToForwarding() {
+        fwdFallback = true
+        go(Step.Access)
     }
 
     /** Back: first to the page's own earlier state, if it has one; otherwise the page before. */
@@ -336,7 +450,8 @@ class AppModel(val scope: CoroutineScope) {
         if (step != Step.Otp || otpWrong) return
         otpJob?.cancel()
         Haptics.success()
-        go(Step.Name, haptic = false)
+        // Whatever the variant puts after the code: the name, or the SIM question.
+        go(route.getOrNull(route.indexOf(Step.Otp) + 1) ?: Step.Name, haptic = false)
         if (perms.any { it == null }) permissionsDue = true
     }
 
@@ -346,11 +461,14 @@ class AppModel(val scope: CoroutineScope) {
     }
 
     /** Starts the onboarding from the splash (the profile tab, or a long-press on the Home logo). */
-    fun restart() {
+    fun restart(shape: Variant = Variant.Standard) {
+        variant = shape
         voice = Voice.Aanya; voiceChosen = false
         phone = ""; name = ""; gender = null; whatsapp = true; picks.clear()
         languages.clear(); primaryLanguage = null
         perms = listOf(null, null); permissionsDue = false; fwdDone = false; sim = null
+        bgJob?.cancel(); bgJob = null
+        bgSetup = BgSetup.Off; bgStripGone = false; fwdFallback = false
         overlay = null; toast = null
         orbSpot = null; orbInSlot = false; settleJob?.cancel(); orbDock = null; dockLanding?.cancel(); dockLanding = null
         localBack = null

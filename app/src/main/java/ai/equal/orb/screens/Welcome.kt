@@ -5,6 +5,7 @@ import ai.equal.orb.ui.orbHover
 import ai.equal.orb.ui.OrbSlot
 import ai.equal.orb.ui.OrbFlight
 import ai.equal.orb.model.AppModel
+import ai.equal.orb.model.BgSetup
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Step
 import ai.equal.orb.ui.EQ
@@ -30,7 +31,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -55,13 +59,28 @@ import kotlin.random.Random
 @Composable
 fun WelcomeScreen(model: AppModel) {
     val talk = rememberTalk()
-    val title = Catalog.title(Catalog.Ask.Welcome, model.displayName)
+    var title by remember { mutableStateOf(Catalog.title(Catalog.Ask.Welcome, model.displayName)) }
     val popped = remember { Animatable(0f) }
     val bye = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(Unit) {
-        talk.intro(title)
+        if (model.bgSetup == BgSetup.Working) {
+            // Nearly there: the welcome holds a few seconds rather than sending them to a loading
+            // screen for the last of it.
+            title = Catalog.finishingUp
+            talk.intro(title)
+            var waited = 0L
+            while (model.bgSetup == BgSetup.Working && waited < 3000L) { delay(100); waited += 100 }
+        }
+        if (!model.fwdDone && model.bgSetup != BgSetup.Off) {
+            // It failed, or the grace ran out: the ordinary walkthrough from here.
+            model.fallBackToForwarding()
+            return@LaunchedEffect
+        }
+        // Set up quietly while they picked calls and a voice: the welcome says so.
+        if (model.bgSetup == BgSetup.Done && !model.fwdFallback) title = Catalog.welcomeLive(model.displayName)
+        if (talk.said) talk.replace(title) else talk.intro(title)
         // The celebration waits for the orb to say it.
         while (!talk.said) delay(50)
         launch { popped.animateTo(1f, tween(600, easing = EQ.ease)) }

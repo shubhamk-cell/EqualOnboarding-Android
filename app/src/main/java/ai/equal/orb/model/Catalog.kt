@@ -189,14 +189,22 @@ object Catalog {
     const val badName = "That doesn’t look like a name — letters only, please."
     const val wrongCode = "That code doesn’t match. Check the SMS and try again."
 
+    /** Call forwarding set up quietly behind the demo: what the orb says about it afterwards. */
+    const val finishingUp = "Just finishing the last bit…"
+    fun welcomeLive(name: String) = "You’re live, $name — calls you miss come to me now"
+    const val oneLastThingFwd = "One last thing — turning on call forwarding"
+
     const val curating = "Curating sample calls from your picks…"
     const val forwardingDone = "Done! Missed calls now come to me"
     const val forwardingWaiting = "I need a connection for this — I’ll start as soon as it’s back"
 
 
-    /** The languages page: first which ones callers speak, then which one to greet them in. */
+    /** The languages page: which ones callers speak, and, in the strip under the grid, which one
+     *  Equal greets them in \u2014 the heading asks it until it's answered. */
     const val languagesAsk = "Which languages do your callers speak? Pick up to\u00A03"
     const val primaryAsk = "Which one should I greet your callers\u00A0in?"
+    const val greetingAsk = "Tap the one I should greet them in"
+    const val greetingSet = "I\u2019ll greet your callers in"
 
     /** How Equal answers a caller in [l], for the user called [name]. */
     fun greeting(l: CallLanguage, name: String) = when (l) {

@@ -12,6 +12,7 @@ import ai.equal.orb.ui.CallPlayer
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.OrbWithBubble
+import ai.equal.orb.ui.OrderBadge
 import ai.equal.orb.ui.PrimaryButton
 import ai.equal.orb.ui.Txt
 import ai.equal.orb.ui.WrapRows
@@ -446,9 +447,6 @@ private fun SharedTransitionScope.ThreePill(
     val on = u.id in picks
     val fading = page.phase != Pick3.Picking && !on
     val letGo by animateFloatAsState(if (page.handing && on) 1f else 0f, if (page.handing) tween(140) else snap(), label = "letGo")
-    val badge by animateFloatAsState(
-        if (on && !page.handing) 1f else 0f, spring(0.55f, 440f), label = "badge",
-    )
     val fill by animateColorAsState(if (on) EQ.mintAlt else Color.White.copy(alpha = 0.7f), tween(200), label = "fill")
     val rim by animateColorAsState(if (on) EQ.green else EQ.edge, tween(200), label = "rim")
     val shape = RoundedCornerShape(20.dp)
@@ -516,20 +514,8 @@ private fun SharedTransitionScope.ThreePill(
         }
         // While curating, a sheen sweeps across the picks.
         if (on && page.phase == Pick3.Curating && page.shimmer) Sheen(Modifier.matchParentSize().clip(shape))
-        // The pick's number, rather than a tick.
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 4.dp, y = (-6).dp)
-                .size(20.dp)
-                .graphicsLayer { val s = 0.4f + 0.6f * badge; scaleX = s; scaleY = s; alpha = badge.coerceIn(0f, 1f) }
-                .border(2.dp, EQ.page, CircleShape)
-                .padding(1.dp)
-                .background(EQ.green, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Txt("$number", dm(11.5f, FontWeight.Bold, Color.White).copy(fontFeatureSettings = "tnum"))
-        }
+        // The pick's number, rather than a tick — the same badge the languages grid carries.
+        OrderBadge(if (on && !page.handing) number else 0, Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-6).dp))
     }
 }
 

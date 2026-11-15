@@ -6,6 +6,7 @@ import ai.equal.orb.model.Lang
 import ai.equal.orb.model.Language
 import ai.equal.orb.model.CallLanguage
 import ai.equal.orb.model.Step
+import ai.equal.orb.model.Variant
 import ai.equal.orb.overlays.OverlayHost
 import ai.equal.orb.overlays.ToastHost
 import ai.equal.orb.screens.*
@@ -60,12 +61,16 @@ import kotlinx.coroutines.launch
  * page. Modal surfaces (consent, decline sheets) and the toast sit on top.
  */
 @Composable
-fun OrbApp(startStep: String?) {
+fun OrbApp(startStep: String?, simFirst: Boolean = false, bgFails: Boolean = false) {
     val scope = rememberCoroutineScope()
     val model = remember {
         AppModel(scope).apply {
+            if (simFirst) variant = Variant.SimFirst
+            bgDemoFail = bgFails
             Step.entries.firstOrNull { it.name.equals(startStep, ignoreCase = true) }?.let {
                 step = it; name = "Shubham"
+                // Far enough in that the SIM question has been answered.
+                if (it.ordinal > Step.Sim.ordinal || (simFirst && it.ordinal > Step.Otp.ordinal)) sim = 0
                 if (it != Step.Phone) phone = "9876543210"
                 if (it == Step.Otp) startOtp()
                 picks.addAll(listOf("task_door", "bank", "task_med"))
@@ -143,6 +148,8 @@ private fun FlowContainer(model: AppModel) {
             .padding(bottom = 16.dp)
     ) {
         TopBar(model)
+        // Call forwarding going on quietly behind the sample calls and the voice step.
+        BackgroundSetupStrip(model)
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { model.contentOrigin = it.positionInRoot() }) {
             OrbStage(model)
             AnimatedContent(

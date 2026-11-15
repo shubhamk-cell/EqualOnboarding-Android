@@ -104,7 +104,9 @@ private const val SETUP_MS = 4200L
 @Composable
 fun AccessScreen(model: AppModel) {
     val talk = rememberTalk()
-    val title = Catalog.title(Catalog.Ask.Access)
+    // Reached because the quiet attempt didn't get there: one last thing, rather than the next
+    // stage of setting up.
+    val title = if (model.fwdFallback) Catalog.oneLastThingFwd else Catalog.title(Catalog.Ask.Access)
     /** The lights coming out round the orb (0 → 1), and folding back into it when done (→ 0). */
     val spread = remember { Animatable(0f) }
     var burst by remember { mutableIntStateOf(0) }

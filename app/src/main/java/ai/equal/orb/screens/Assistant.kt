@@ -65,9 +65,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -79,6 +81,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.random.Random
 
 /**
  * After the sample calls: “Now that you’ve seen me in action, how would you like me to
@@ -164,77 +167,141 @@ fun AssistantScreen(model: AppModel) {
         Spacer(Modifier.weight(1f))
         // The button below roughly balances the top bar above, so nothing more is needed here.
         PrimaryButton(
-            model.nextCta, enabled = chosen != null,
+            model.voiceCta, enabled = chosen != null,
             modifier = Modifier.padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 8.dp).graphicsLayer { alpha = buttonAlpha },
         ) {
             preview.stop()
-            model.next()
+            // Whether the walkthrough is still needed depends on the quiet attempt behind this page.
+            model.finishVoiceStep()
         }
     }
 }
 
 /**
- * One voice: styled like the gender cards — a pale tint, a soft top sheen and a faint ♀ / ♂
- * behind — with a play button (bars while it speaks), the name and its vibe.
+ * One voice, as a quiet piece of glass: a pale face lit from the top-left, washing to a faint ink
+ * at the foot, inside a lit top edge; its gender small and tracked opposite a white play button,
+ * then the name, its vibe, and the voice's own waveform along the bottom — still while it's quiet,
+ * green and breathing while it speaks. The ♀ / ♂ mark stays in the corner, fainter than the gender
+ * cards', cut by the edge.
  */
 @Composable
 private fun VoiceCard(v: Voice, on: Boolean, speaking: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(22.dp)
     val gender = if (v.isFemale) Gender.Female else Gender.Male
-    val sel by animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = 440f), label = "voice")
+    val face by animateColorAsState(
+        if (on) EQ.mintAlt.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.62f), tween(250), label = "face",
+    )
     val nameColor by animateColorAsState(if (on) EQ.greenText else EQ.ink, tween(200), label = "name")
+    val rim by animateColorAsState(if (on) EQ.green else EQ.edge, tween(200), label = "rim")
+    val sheenRadius = with(LocalDensity.current) { 170.dp.toPx() }
     Box(
         modifier
-            .height(148.dp)
+            .height(152.dp)
             .pressable(scale = 0.97f) { onClick() }
             .semantics { contentDescription = "${v.name}, ${v.gender} voice, ${v.vibe}"; selected = on },
     ) {
         Box(
             Modifier
                 .matchParentSize()
+                // A wide, soft shadow under a closer one: the card sits above the page rather than
+                // being drawn on it. Picked, a green one joins them (from selectableLift).
+                .shadow(22.dp, shape, ambientColor = hex(0x0B1F12, 0.05f), spotColor = hex(0x0B1F12, 0.07f))
                 .selectableLift(on, shape)
                 .clip(shape)
-                .glassCardFace(shape, on)
-                .border(if (on) 1.5.dp else 1.dp, if (on) EQ.green else EQ.edge, shape),
+                .background(face, shape)
+                // The light falls from the top-left corner…
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.55f), Color.Transparent),
+                        center = Offset.Zero, radius = sheenRadius,
+                    ),
+                    shape,
+                )
+                // …and the foot settles into a faint ink.
+                .background(
+                    Brush.verticalGradient(0.45f to Color.Transparent, 1f to EQ.ink.copy(alpha = 0.055f)),
+                    shape,
+                )
+                .border(if (on) 1.5.dp else 1.dp, rim, shape),
         ) {
             // In the lower-right corner, whole enough to read as ♀ (ring and cross) or ♂ (ring and
-            // arrow), just cut by the edge.
+            // arrow), just cut by the edge — fainter here than on the gender cards.
             GenderMark(
                 gender,
                 Modifier.align(Alignment.BottomEnd).offset(if (v.isFemale) 38.dp else 30.dp, if (v.isFemale) (-32).dp else 22.dp),
+                opacity = 0.035f,
             )
-            Column(Modifier.matchParentSize().padding(14.dp)) {
-                // Plays its hello: bars while it speaks, a play glyph otherwise.
-                Box(
-                    Modifier.align(Alignment.End).size(30.dp).background(EQ.green.copy(alpha = if (speaking) 0.2f else 0.13f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (speaking) SpeakingBars(Modifier.size(14.dp, 12.dp))
-                    else Image(rememberVectorPainter(Icons.Filled.PlayArrow), null, Modifier.size(16.dp), colorFilter = ColorFilter.tint(EQ.green))
+            // The lit top edge, just inside the outline.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .padding(1.dp)
+                    .border(
+                        1.5.dp,
+                        Brush.verticalGradient(0f to Color.White.copy(alpha = 0.9f), 0.45f to Color.Transparent),
+                        RoundedCornerShape(21.dp),
+                    ),
+            )
+            Column(Modifier.matchParentSize().padding(horizontal = 14.dp, vertical = 13.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Txt(v.gender.uppercase(), dm(9f, FontWeight.Bold, EQ.ink.copy(alpha = 0.4f), tracking = 1.2f))
+                    PlayDisc(speaking)
                 }
                 Spacer(Modifier.weight(1f))
-                Txt(v.name, dm(21f, FontWeight.SemiBold, nameColor))
-                Txt(v.vibe, dm(13f, color = EQ.ink.copy(alpha = 0.55f)), Modifier.padding(top = 2.dp))
+                Txt(v.name, dm(22f, FontWeight.SemiBold, nameColor))
+                Txt(v.vibe, dm(12.5f, color = EQ.ink.copy(alpha = 0.55f)), Modifier.padding(top = 1.dp))
+                VoiceWave(v, speaking, Modifier.fillMaxWidth().padding(top = 9.dp).height(14.dp))
             }
         }
         CheckBadge(on, Modifier.align(Alignment.TopEnd).offset(6.dp, (-6).dp))
     }
 }
 
-/** Three little bars bouncing while a voice speaks. */
+/** The small white disc that plays a voice's hello: a play glyph, a pause while it speaks. */
 @Composable
-private fun SpeakingBars(modifier: Modifier) {
+private fun PlayDisc(speaking: Boolean) {
+    Box(
+        Modifier
+            .size(28.dp)
+            .shadow(4.dp, CircleShape, ambientColor = hex(0x0B1F12, 0.10f), spotColor = hex(0x0B1F12, 0.14f))
+            .background(Color.White, CircleShape)
+            .border(1.dp, EQ.ink.copy(alpha = 0.07f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (speaking) Canvas(Modifier.size(11.dp)) {
+            val w = 3.2.dp.toPx()
+            val gap = 3.dp.toPx()
+            val left = (size.width - 2 * w - gap) / 2
+            repeat(2) { i ->
+                drawRoundRect(EQ.green, Offset(left + i * (w + gap), 0f), Size(w, size.height), CornerRadius(w / 2))
+            }
+        } else Image(
+            rememberVectorPainter(Icons.Filled.PlayArrow), null,
+            Modifier.size(16.dp).offset(x = 1.dp), colorFilter = ColorFilter.tint(EQ.green),
+        )
+    }
+}
+
+/**
+ * The voice's own waveform: fourteen thin capsules whose shape is fixed per voice (so each card
+ * keeps its own silhouette), faint ink and still while it's quiet, green and breathing while that
+ * voice is speaking.
+ */
+@Composable
+private fun VoiceWave(v: Voice, speaking: Boolean, modifier: Modifier) {
     val clock = rememberClock()
+    val bars = remember(v) { Random(v.ordinal * 31 + 7).let { r -> List(14) { 0.3f + r.nextFloat() * 0.7f } } }
+    val live by animateFloatAsState(if (speaking) 1f else 0f, tween(280), label = "wave")
+    val colour = lerp(EQ.ink.copy(alpha = 0.14f), EQ.green, live)
     Canvas(modifier) {
-        val w = 3.dp.toPx()
-        val gap = 2.dp.toPx()
-        val left = (size.width - 3 * w - 2 * gap) / 2
-        val t = clock.value
-        for (i in 0 until 3) {
-            val h = (4 + 8 * abs(sin(t * 7 + i * 1.1f))).dp.toPx()
-            drawRoundRect(
-                EQ.green, Offset(left + i * (w + gap), (size.height - h) / 2), Size(w, h), CornerRadius(w / 2),
-            )
+        val w = 2.5.dp.toPx()
+        val gap = (size.width - bars.size * w) / (bars.size - 1)
+        // The clock is only read while it speaks, so a quiet card isn't redrawn every frame.
+        val t = if (live > 0f) clock.value else 0f
+        bars.forEachIndexed { i, base ->
+            val breathe = if (live > 0f) 1f + live * (0.45f * abs(sin(t * 6f + i * 0.7f)) - 0.2f) else 1f
+            val h = (size.height * base * breathe).coerceAtLeast(w)
+            drawRoundRect(colour, Offset(i * (w + gap), (size.height - h) / 2), Size(w, h), CornerRadius(w / 2))
         }
     }
 }

@@ -16,8 +16,13 @@ import android.os.Looper
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
@@ -50,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -317,6 +323,50 @@ fun CheckBadge(on: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+// MARK: - Order badge
+
+/**
+ * The same badge as [CheckBadge], carrying a place (1, 2, 3) instead of a tick: for the choices
+ * where the order matters — the three picks, and the languages — so the cards say how many are in
+ * and in which order. Hidden (shrunk away) at [place] 0. When an earlier choice is dropped the
+ * digit swaps in place rather than the badge flickering: pick 2 becomes pick 1 where it stands.
+ */
+@Composable
+fun OrderBadge(place: Int, modifier: Modifier = Modifier) {
+    val on = place > 0
+    val p by animateFloatAsState(if (on) 1f else 0f, iosSpring(0.3f, 0.55f), label = "order")
+    // The last number is kept while the badge shrinks away, so it can't change on the way out.
+    var number by remember { mutableIntStateOf(place.coerceAtLeast(1)) }
+    if (on) number = place
+    Box(
+        modifier
+            .size(20.dp)
+            .graphicsLayer {
+                val s = 0.4f + 0.6f * p
+                scaleX = s; scaleY = s
+                alpha = p.coerceIn(0f, 1f)
+            }
+            .border(2.dp, EQ.page, CircleShape)
+            .padding(1.dp)
+            .background(EQ.green, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            number,
+            transitionSpec = {
+                // Moving up the order (2 → 1), the new digit rises into place; down, it drops in.
+                val up = targetState < initialState
+                val h = { full: Int -> if (up) full else -full }
+                (slideInVertically(tween(220), h) + fadeIn(tween(160))) togetherWith
+                    (slideOutVertically(tween(220)) { -h(it) } + fadeOut(tween(140)))
+            },
+            label = "place",
+        ) { n ->
+            Txt("$n", dm(11.5f, FontWeight.Bold, Color.White).copy(fontFeatureSettings = "tnum"))
+        }
+    }
+}
+
 // MARK: - Celebration
 
 private val burstColours = listOf(0xBAFF29L, 0x8CEA35L, 0x00B140L, 0xFFE25CL, 0x5BC8F5L, 0xFFC59EL)
@@ -365,7 +415,7 @@ fun CelebrationBurst(trigger: Int, modifier: Modifier = Modifier, spread: Dp = 1
  * gender's mark colour. Put it in the card's top-start corner, clipped by the card.
  */
 @Composable
-fun GenderMark(gender: Gender, modifier: Modifier = Modifier) {
+fun GenderMark(gender: Gender, modifier: Modifier = Modifier, opacity: Float = 0.05f) {
     // Neutral on every card: the shape alone says which is which.
     val colour = EQ.ink
     val male = gender == Gender.Male
@@ -373,7 +423,7 @@ fun GenderMark(gender: Gender, modifier: Modifier = Modifier) {
         modifier
             .offset(if (male) (-22).dp else (-30).dp, if (male) (-10).dp else 40.dp)
             .size(if (male) 95.dp else 109.dp, if (male) 103.dp else 118.5.dp)
-            .graphicsLayer { alpha = 0.05f },
+            .graphicsLayer { alpha = opacity },
     ) {
         val u = density
         fun pt(x: Double, y: Double) = Offset((x * u).toFloat(), (y * u).toFloat())

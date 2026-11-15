@@ -2,6 +2,7 @@ package ai.equal.orb.screens
 
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Step
+import ai.equal.orb.model.Variant
 import ai.equal.orb.ui.CelebrationBurst
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.Haptics
@@ -172,12 +173,29 @@ fun ProfileScreen(model: AppModel) {
         ProfileHeader(model, Modifier.padding(bottom = 28.dp))
         Txt("ONBOARDING", dm(12f, FontWeight.SemiBold, DS.meta, tracking = 0.6f))
         Txt(
-            "Tap to run it from the start. It ends back here on Home.",
+            "Two ways through the same setup. Tap one to run it from the start; it ends back here on Home.",
             dm(14f, color = DS.meta, lineHeight = 19f), Modifier.padding(top = 4.dp, bottom = 14.dp),
         )
-        OnboardingRow {
+        OnboardingRow(
+            "Pick 3, hear them in place",
+            "A 6-digit code, then name and how to address you on one page. Pick exactly 3 calls; they turn into " +
+                "playable samples right where they are. Then choose how your assistant sounds. The SIM and call " +
+                "forwarding come at the end.",
+            listOf("Sign-up" to hex(0x1F1F1F), "Show value" to hex(0x16A34A), "Set up" to hex(0x2563EB), "Home" to hex(0x8A8A8A)),
+        ) {
             Haptics.step()
-            model.restart()
+            model.restart(Variant.Standard)
+        }
+        Spacer(Modifier.height(12.dp))
+        OnboardingRow(
+            "SIM first, forwarding in the background",
+            "The SIM question comes straight after the code, and the permission popups land there with it. " +
+                "Because Equal then knows which SIM to use, call forwarding is set up quietly while you pick " +
+                "sample calls and a voice — so there's no waiting screen at the end.",
+            listOf("Sign-up" to hex(0x1F1F1F), "Set up" to hex(0x2563EB), "Show value" to hex(0x16A34A), "Home" to hex(0x8A8A8A)),
+        ) {
+            Haptics.step()
+            model.restart(Variant.SimFirst)
         }
     }
 }
@@ -199,9 +217,9 @@ private fun ProfileHeader(model: AppModel, modifier: Modifier) {
     }
 }
 
-/** The onboarding: its name and what it's about, and its blocks in order as coloured chips. */
+/** One version of the onboarding: its name and what it's about, and its blocks in order as chips. */
 @Composable
-private fun OnboardingRow(onClick: () -> Unit) {
+private fun OnboardingRow(title: String, about: String, blocks: List<Pair<String, Color>>, onClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     Row(
         Modifier
@@ -213,13 +231,8 @@ private fun OnboardingRow(onClick: () -> Unit) {
         verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Txt("Pick 3, hear them in place", dm(16.5f, FontWeight.SemiBold, DS.name, lineHeight = 21f))
-            Txt(
-                "A 6-digit code, then name and how to address you on one page. Pick exactly 3 calls; they turn into " +
-                    "playable samples right where they are. Then choose how your assistant sounds.",
-                dm(13.5f, color = DS.meta, lineHeight = 18f),
-            )
-            val blocks = listOf("Sign-up" to hex(0x1F1F1F), "Show value" to hex(0x16A34A), "Set up" to hex(0x2563EB), "Home" to hex(0x8A8A8A))
+            Txt(title, dm(16.5f, FontWeight.SemiBold, DS.name, lineHeight = 21f))
+            Txt(about, dm(13.5f, color = DS.meta, lineHeight = 18f))
             WrapRows(3.dp, Modifier.padding(top = 2.dp)) {
                 blocks.forEachIndexed { i, (title, color) ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {

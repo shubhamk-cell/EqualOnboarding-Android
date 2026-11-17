@@ -12,6 +12,7 @@ import ai.equal.orb.ui.OrbWithBubble
 import ai.equal.orb.ui.Txt
 import ai.equal.orb.ui.afterOrb
 import ai.equal.orb.ui.dm
+import ai.equal.orb.ui.glass
 import ai.equal.orb.ui.hex
 import ai.equal.orb.ui.rememberTalk
 import androidx.compose.animation.animateColorAsState
@@ -157,7 +158,7 @@ fun AccessScreen(model: AppModel) {
                 val r = orbRadius * (1.9f + 0.35f * b)
                 drawCircle(
                     Brush.radialGradient(
-                        0f to hex(0xBAFF29, (0.45f + 0.15f * b) * s), 0.45f to EQ.green.copy(alpha = 0.16f * s), 1f to Color.Transparent,
+                        0f to hex(0x8CEA35, (0.30f + 0.10f * b) * s), 0.45f to EQ.green.copy(alpha = 0.12f * s), 1f to Color.Transparent,
                         center = center, radius = r,
                     ),
                     r, center,
@@ -226,7 +227,7 @@ private fun DrawScope.drawOrbiters(center: Offset, t: Float, spread: Float, behi
         val r = o.size.dp.toPx() * depth
         drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.45f * k), Color.Transparent), p, r * 3.2f), r * 3.2f, p)
         drawCircle(color.copy(alpha = k * depth), r, p)
-        drawCircle(Color.White.copy(alpha = 0.8f * k), r * 0.38f, p)
+        drawCircle(Color.White.copy(alpha = 0.9f * k), r * 0.38f, p)
     }
 }
 
@@ -236,19 +237,19 @@ private fun StatusLine(text: String, done: Boolean, modifier: Modifier) {
     val spin = rememberInfiniteTransition(label = "spin")
     val angle by spin.animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "angle")
     Row(
-        modifier.fillMaxWidth().height(56.dp).background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(50)),
+        modifier.fillMaxWidth().height(56.dp)
+            .glass(RoundedCornerShape(50), tint = 0.55f),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        if (done) Txt("✓", dm(18f, FontWeight.Bold, EQ.lime))
+        if (done) Txt("✓", dm(18f, FontWeight.Bold, EQ.green))
         else Canvas(Modifier.size(18.dp).graphicsLayer { rotationZ = angle }) {
             val w = 2.5.dp.toPx()
-            drawCircle(Color.White.copy(alpha = 0.25f), radius = size.minDimension / 2 - w / 2, style = Stroke(w))
-            drawArc(EQ.lime, -90f, 100f, false, topLeft = Offset(w / 2, w / 2),
+            drawCircle(EQ.ink.copy(alpha = 0.12f), radius = size.minDimension / 2 - w / 2, style = Stroke(w))
+            drawArc(EQ.green, -90f, 100f, false, topLeft = Offset(w / 2, w / 2),
                 size = Size(size.width - w, size.height - w), style = Stroke(w, cap = StrokeCap.Round))
         }
         Spacer(Modifier.size(10.dp))
-        Txt(text, dm(16f, FontWeight.SemiBold, Color.White))
+        Txt(text, dm(16f, FontWeight.SemiBold, EQ.ink))
     }
 }

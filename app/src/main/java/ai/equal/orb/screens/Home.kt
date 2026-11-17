@@ -315,7 +315,7 @@ private fun ChatsScreen(model: AppModel, list: LazyListState) {
             item("cards") {
                 DashboardCarousel(cards, model.missingPermissions) { card ->
                     Haptics.step()
-                    if (card.isPermission) scope.launch { model.present(Overlay.Decline(model.missingPermissions)) }
+                    if (card.isPermission) scope.launch { model.present(Overlay.Blocked(model.missingPermissions, dismissible = true)) }
                     else model.showToast("Not in this prototype")
                 }
             }

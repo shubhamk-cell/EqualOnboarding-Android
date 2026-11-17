@@ -117,7 +117,12 @@ enum class CallLanguage(val label: String, val initial: String, val speechCode: 
     }
 }
 
-enum class Permission { Notifications, Contacts }
+enum class Permission(val label: String, val reason: String) {
+    Notifications("Notifications", "So I can tell you about the calls I take"),
+    Contacts("Contacts", "So I know who’s calling and greet them by name"),
+    /** Making and managing calls: what dialling the forwarding code needs. */
+    Calls("Phone calls", "So I can turn on forwarding and answer for you"),
+}
 
 /** The 3D art for whatever is missing: a bell, a contacts book, or a gear for both. */
 val List<Permission>.art: Int
@@ -129,9 +134,21 @@ val List<Permission>.art: Int
 
 /** Modal surfaces drawn above the flow. */
 sealed interface Overlay {
-    /** Equal's sheet after the system prompts, for whichever permissions were refused. */
-    data class Decline(val missing: List<Permission>) : Overlay
+    /**
+     * The flow is held: these permissions were refused and Equal can't go on without them. A full
+     * screen rather than a sheet, with no way past it but Settings. [dismissible] only from Home,
+     * where nothing is waiting on them.
+     */
+    data class Blocked(
+        val missing: List<Permission>,
+        val dismissible: Boolean = false,
+        /** Shown for a demo on a phone that has already granted them: it stays put. */
+        val demo: Boolean = false,
+    ) : Overlay
 }
+
+/** Which batch of permissions the flow is waiting on. */
+enum class PermissionGate { None, Notifications, CallsAndContacts }
 
 /** The orb's last flight, from Welcome into Home's Equal button (root coordinates, px). */
 data class OrbDock(val frame: Rect, val morph: Float = 0f)
@@ -181,7 +198,10 @@ class AppModel(val scope: CoroutineScope) {
     /** The one of [languages] Equal greets callers in (null until chosen). */
     var primaryLanguage by mutableStateOf<CallLanguage?>(null)
     /** The code is verified: the permission popups are due (they open over the name page). */
-    var permissionsDue by mutableStateOf(false)
+    /** The batch of permissions the flow is asking for right now. */
+    var permissionGate by mutableStateOf(PermissionGate.None)
+    /** Where the flow goes once that batch is granted. */
+    var afterPermissions: (() -> Unit)? = null
     var fwdDone by mutableStateOf(false)
     /** The quiet attempt at call forwarding, started when the sample calls open (SIM-first only). */
     var bgSetup by mutableStateOf(BgSetup.Off)
@@ -198,7 +218,7 @@ class AppModel(val scope: CoroutineScope) {
     /** The SIM Equal takes calls on (0 or 1; null until one is picked). */
     var sim by mutableStateOf<Int?>(null)
     /** Notifications, contacts: granted? (null = not asked yet, which counts as off too.) */
-    var perms by mutableStateOf(listOf<Boolean?>(null, null))
+    var perms by mutableStateOf(listOf<Boolean?>(null, null, null))
 
     /** The flow's one orb: where it sits. */
     var orbSpot by mutableStateOf<OrbSpot?>(null)
@@ -452,7 +472,6 @@ class AppModel(val scope: CoroutineScope) {
         Haptics.success()
         // Whatever the variant puts after the code: the name, or the SIM question.
         go(route.getOrNull(route.indexOf(Step.Otp) + 1) ?: Step.Name, haptic = false)
-        if (perms.any { it == null }) permissionsDue = true
     }
 
     fun exitToHome() {
@@ -466,7 +485,7 @@ class AppModel(val scope: CoroutineScope) {
         voice = Voice.Aanya; voiceChosen = false
         phone = ""; name = ""; gender = null; whatsapp = true; picks.clear()
         languages.clear(); primaryLanguage = null
-        perms = listOf(null, null); permissionsDue = false; fwdDone = false; sim = null
+        perms = listOf(null, null, null); permissionGate = PermissionGate.None; afterPermissions = null; fwdDone = false; sim = null
         bgJob?.cancel(); bgJob = null
         bgSetup = BgSetup.Off; bgStripGone = false; fwdFallback = false
         overlay = null; toast = null
@@ -532,8 +551,27 @@ class AppModel(val scope: CoroutineScope) {
 
     /** Permissions still off. */
     val missingPermissions: List<Permission>
-        get() = (if (perms[0] == true) emptyList() else listOf(Permission.Notifications)) +
-            (if (perms[1] == true) emptyList() else listOf(Permission.Contacts))
+        get() = Permission.entries.filterIndexed { i, _ -> perms.getOrNull(i) != true }
+
+    /**
+     * Asks for a batch of permissions and holds the flow until they're granted: the notifications
+     * one as the number is sent, contacts and calls once a voice is chosen. [then] runs when they
+     * are all in — never before.
+     */
+    fun askPermissions(gate: PermissionGate, then: () -> Unit) {
+        if (gate == PermissionGate.None) { then(); return }
+        afterPermissions = then
+        permissionGate = gate
+    }
+
+    /** The batch came back granted: on with the flow. */
+    fun permissionsSatisfied() {
+        val next = afterPermissions
+        afterPermissions = null
+        permissionGate = PermissionGate.None
+        overlay = null
+        next?.invoke()
+    }
 
     /** Reads what Android actually has granted (it may have changed in Settings). */
     fun refreshPermissions(context: Context) {
@@ -541,7 +579,15 @@ class AppModel(val scope: CoroutineScope) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         else NotificationManagerCompat.from(context).areNotificationsEnabled()
         val contacts = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
-        perms = listOf(notifications, contacts)
+        val calls = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+        perms = listOf(notifications, contacts, calls)
+    }
+
+    /** Whether a batch is fully granted, read from what Android says right now. */
+    fun granted(gate: PermissionGate): Boolean = when (gate) {
+        PermissionGate.None -> true
+        PermissionGate.Notifications -> perms.getOrNull(0) == true
+        PermissionGate.CallsAndContacts -> perms.getOrNull(1) == true && perms.getOrNull(2) == true
     }
 
     // MARK: Overlays
@@ -551,7 +597,7 @@ class AppModel(val scope: CoroutineScope) {
         pending?.complete("superseded")
         val d = CompletableDeferred<String>()
         pending = d
-        if (o is Overlay.Decline) Haptics.warning()
+        if (o is Overlay.Blocked) Haptics.warning()
         overlay = o
         return d.await()
     }

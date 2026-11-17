@@ -6,6 +6,7 @@ import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.CallLanguage
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Gender
+import ai.equal.orb.model.PermissionGate
 import ai.equal.orb.model.Voice
 import ai.equal.orb.ui.CheckBadge
 import ai.equal.orb.ui.Device
@@ -171,8 +172,9 @@ fun AssistantScreen(model: AppModel) {
             modifier = Modifier.padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 8.dp).graphicsLayer { alpha = buttonAlpha },
         ) {
             preview.stop()
-            // Whether the walkthrough is still needed depends on the quiet attempt behind this page.
-            model.finishVoiceStep()
+            // Contacts and call handling are asked for here; the flow waits until they're granted.
+            // Then the quiet attempt behind this page decides whether the walkthrough is needed.
+            model.askPermissions(PermissionGate.CallsAndContacts) { model.finishVoiceStep() }
         }
     }
 }

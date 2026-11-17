@@ -5,6 +5,8 @@ import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Lang
 import ai.equal.orb.model.Language
 import ai.equal.orb.model.CallLanguage
+import ai.equal.orb.model.Overlay
+import ai.equal.orb.model.Permission
 import ai.equal.orb.model.Step
 import ai.equal.orb.model.Variant
 import ai.equal.orb.overlays.OverlayHost
@@ -61,12 +63,17 @@ import kotlinx.coroutines.launch
  * page. Modal surfaces (consent, decline sheets) and the toast sit on top.
  */
 @Composable
-fun OrbApp(startStep: String?, simFirst: Boolean = false, bgFails: Boolean = false) {
+fun OrbApp(startStep: String?, simFirst: Boolean = false, bgFails: Boolean = false, block: String? = null) {
     val scope = rememberCoroutineScope()
     val model = remember {
         AppModel(scope).apply {
             if (simFirst) variant = Variant.SimFirst
             bgDemoFail = bgFails
+            when (block) {
+                "notifications" -> overlay = Overlay.Blocked(listOf(Permission.Notifications), demo = true)
+                "calls" -> overlay = Overlay.Blocked(listOf(Permission.Contacts, Permission.Calls), demo = true)
+                "all" -> overlay = Overlay.Blocked(Permission.entries.toList(), demo = true)
+            }
             Step.entries.firstOrNull { it.name.equals(startStep, ignoreCase = true) }?.let {
                 step = it; name = "Shubham"
                 // Far enough in that the SIM question has been answered.
@@ -82,8 +89,8 @@ fun OrbApp(startStep: String?, simFirst: Boolean = false, bgFails: Boolean = fal
     val view = LocalView.current
     SideEffect { Haptics.view = view }
 
-    // Light status-bar icons on the green splash and over the forwarding scene, dark everywhere else.
-    val dark = model.step == Step.Splash || model.step == Step.Access
+    // Light status-bar icons on the green splash, dark everywhere else.
+    val dark = model.step == Step.Splash
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
@@ -96,17 +103,11 @@ fun OrbApp(startStep: String?, simFirst: Boolean = false, bgFails: Boolean = fal
     }
 
     val slidePx = with(LocalDensity.current) { 24.dp.roundToPx() }
-    // The forwarding step has its own dark scene, so the white page isn't drawn under it.
-    val onSky = model.step.onSky && model.step != Step.Access
+    val onSky = model.step.onSky
     val showsHome = model.step == Step.Home
     Box(Modifier.fillMaxSize().background(Color.White)) {
         val skyAlpha by animateFloatAsState(if (onSky) 1f else 0f, tween(450), label = "sky")
         if (skyAlpha > 0f) Sky(Modifier.graphicsLayer { alpha = skyAlpha })
-
-        // Call forwarding: a dark scene of calls drifting in plays behind the whole page.
-        AnimatedVisibility(model.step == Step.Access, enter = fadeIn(tween(500)), exit = fadeOut(tween(400))) {
-            ForwardingBackdrop()
-        }
 
         // Home: slides in 24 dp from the right as it fades up.
         AnimatedVisibility(

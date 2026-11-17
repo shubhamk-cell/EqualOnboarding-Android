@@ -12,6 +12,7 @@ import ai.equal.orb.R
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Overlay
+import ai.equal.orb.model.PermissionGate
 import ai.equal.orb.ui.EQ
 import ai.equal.orb.ui.Haptics
 import ai.equal.orb.ui.afterOrb
@@ -117,32 +118,39 @@ private fun rememberPermissionAsker(): suspend (String) -> Boolean {
 // MARK: - Permissions
 
 /**
- * The permission popups, right after the code is verified ([AppModel.permissionsDue]), over the
- * name page: Android's notifications prompt, then contacts. If either was refused, Equal's own
- * sheet asks once for whatever is missing.
+ * The permission popups, driven by whichever batch the flow is waiting on: notifications as the
+ * number is sent, then contacts and call handling once a voice is chosen. Anything refused puts a
+ * full screen in the way ([Overlay.Blocked]) — the flow does not go on until it's granted.
  * Draws nothing itself; lives at the app's root so it isn't tied to a screen.
  */
 @Composable
 fun PermissionPrompts(model: AppModel) {
     val ask = rememberPermissionAsker()
     val context = LocalContext.current
-    LaunchedEffect(model.permissionsDue) {
-        if (!model.permissionsDue) return@LaunchedEffect
-        // Let the name page arrive first.
-        delay(900)
-        val notifications = if (Build.VERSION.SDK_INT >= 33) ask(Manifest.permission.POST_NOTIFICATIONS)
-        else NotificationManagerCompat.from(context).areNotificationsEnabled()
-        delay(250)
-        val contacts = ask(Manifest.permission.READ_CONTACTS)
-
-        val missing = buildList {
-            if (!notifications) add(Permission.Notifications)
-            if (!contacts) add(Permission.Contacts)
+    LaunchedEffect(model.permissionGate) {
+        val gate = model.permissionGate
+        if (gate == PermissionGate.None) return@LaunchedEffect
+        // Let the page the user just left settle before the system takes over the screen.
+        delay(450)
+        if (gate == PermissionGate.Notifications) {
+            if (Build.VERSION.SDK_INT >= 33) ask(Manifest.permission.POST_NOTIFICATIONS)
+            else NotificationManagerCompat.from(context).areNotificationsEnabled()
+        } else {
+            ask(Manifest.permission.READ_CONTACTS)
+            delay(250)
+            ask(Manifest.permission.CALL_PHONE)
         }
-        val fixed = missing.isNotEmpty() && model.present(Overlay.Decline(missing)) == "settings"
-        model.perms = listOf(notifications || fixed, contacts || fixed)
-        if (notifications && contacts) Haptics.success()
-
-        model.permissionsDue = false
+        model.refreshPermissions(context)
+        if (model.granted(gate)) {
+            Haptics.success()
+            model.permissionsSatisfied()
+        } else {
+            // Refused: the flow is held until Settings puts it right.
+            val missing = when (gate) {
+                PermissionGate.Notifications -> listOf(Permission.Notifications)
+                else -> listOf(Permission.Contacts, Permission.Calls)
+            }.filter { model.missingPermissions.contains(it) }
+            model.overlay = Overlay.Blocked(missing)
+        }
     }
 }

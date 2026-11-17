@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Edit
 import ai.equal.orb.model.AppModel
 import ai.equal.orb.model.Catalog
 import ai.equal.orb.model.Gender
+import ai.equal.orb.model.PermissionGate
 import ai.equal.orb.model.Step
 import ai.equal.orb.ui.Device
 import ai.equal.orb.ui.EQ
@@ -187,7 +188,8 @@ fun PhoneScreen(model: AppModel) {
             return
         }
         focusManager.clearFocus()
-        model.go(Step.Otp)
+        // The notifications prompt comes here, as the number goes: the code page waits for it.
+        model.askPermissions(PermissionGate.Notifications) { model.go(Step.Otp) }
     }
 
     QuestionLayout(arriving, main = {

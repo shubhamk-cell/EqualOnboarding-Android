@@ -185,7 +185,7 @@ private fun FlowContainer(model: AppModel) {
 }
 
 /**
- * Close (first screen) or Back on the left,
+ * Close (first screen) or Back (the sample calls, the one page worth returning to) on the left,
  * and the language menu, always, in the middle.
  */
 @Composable
@@ -203,7 +203,7 @@ private fun TopBar(model: AppModel) {
         ) {
             when {
                 model.step == Step.Phone -> CloseButton { model.closeFlow() }
-                model.step.hasBack -> BackButton { model.back() }
+                model.step.showsBack -> BackButton { model.back() }
                 else -> Spacer(Modifier.size(48.dp))
             }
         }

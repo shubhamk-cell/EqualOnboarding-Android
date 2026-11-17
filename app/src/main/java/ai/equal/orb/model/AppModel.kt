@@ -37,6 +37,13 @@ enum class Step {
     Splash, Phone, Otp, Name, Languages, Cases, Assistant, Sim, Access, Welcome, Home;
 
     val hasBack get() = this != Phone && this != Welcome
+
+    /**
+     * Whether the top bar draws a back arrow. Only the sample calls do: that page is worth
+     * returning to, and everywhere else the arrow invited a detour out of a question that has
+     * to be answered anyway. The system back gesture still follows [hasBack] throughout.
+     */
+    val showsBack get() = this == Cases
     val onSky get() = this != Splash && this != Home
 }
 
